@@ -185,7 +185,7 @@ export function ConfiguracionPage() {
               <Input label="CUIT" value={cuit} onChange={(e) => setCuit(e.target.value)} />
               <div>
                 <Input
-                  label="Descuento por pago en efectivo (%)"
+                  label="Descuento sobre accesorios en pesos (%)"
                   type="number"
                   min={0}
                   max={100}
@@ -193,7 +193,7 @@ export function ConfiguracionPage() {
                   onChange={(e) => setDescuentoEfectivo(e.target.value)}
                 />
                 <p className="mt-1 text-sm text-text-soft">
-                  Valor sugerido al marcar el descuento en una venta en efectivo. Se puede cambiar en cada venta.
+                  Porcentaje sugerido al aplicar un descuento en una venta. Se puede cambiar en cada venta.
                 </p>
               </div>
               <div className="flex flex-col gap-3 rounded-lg border border-line bg-surface-2 p-4">

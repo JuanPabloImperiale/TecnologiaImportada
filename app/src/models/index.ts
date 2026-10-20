@@ -175,7 +175,7 @@ export interface Venta {
   /** Ingresos por moneda (items de tipo venta), sin conversión. `totalArs` ya tiene restado `descuento`. */
   totalUsd: number;
   totalArs: number;
-  /** Descuento por pago en efectivo: solo sobre accesorios en pesos (no incluye envío). */
+  /** Descuento solo sobre accesorios en pesos (no incluye envío). */
   descuento?: { porcentaje: number; montoArs: number };
   /** Costo por moneda (todos los items, incl. bonificaciones). */
   costoUsd: number;

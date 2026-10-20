@@ -145,7 +145,7 @@ export function VentaDetailPage() {
               {venta.descuento && venta.descuento.montoArs > 0 && (
                 <>
                   <Row label="Subtotal en pesos" value={formatMoney(venta.totalArs + venta.descuento.montoArs)} />
-                  <Row label={`Descuento pago en efectivo (${venta.descuento.porcentaje}%)`} value={`−${formatMoney(venta.descuento.montoArs)}`} />
+                  <Row label={`Descuento (${venta.descuento.porcentaje}%)`} value={`−${formatMoney(venta.descuento.montoArs)}`} />
                 </>
               )}
               {(venta.totalArs > 0 || (venta.envio?.costo ?? 0) > 0) && (

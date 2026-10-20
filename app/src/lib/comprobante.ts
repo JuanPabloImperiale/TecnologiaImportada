@@ -24,7 +24,7 @@ export function printComprobante(venta: Venta, nombreNegocio: string) {
   const descuentoFilas =
     d && d.montoArs > 0
       ? `<tr><td>Subtotal en pesos</td><td class="r">${formatMoney(venta.totalArs + d.montoArs)}</td></tr>` +
-        `<tr><td>Descuento pago en efectivo (${d.porcentaje}%)</td><td class="r">−${formatMoney(d.montoArs)}</td></tr>`
+        `<tr><td>Descuento (${d.porcentaje}%)</td><td class="r">−${formatMoney(d.montoArs)}</td></tr>`
       : '';
 
   const totales =

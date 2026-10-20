@@ -121,7 +121,7 @@ export function NuevaVentaPage() {
   const envioCosto = metodoEnvio === 'envio' ? costoEnvio : 0;
   const tc = Number(tipoCambio) || 0;
   const baseDescuento = baseDescuentoEfectivo(lineas);
-  const puedeDescontar = medioArs === 'efectivo' && baseDescuento > 0;
+  const puedeDescontar = baseDescuento > 0;
   const descuentoMonto = aplicarDescuento && puedeDescontar ? calcDescuento(baseDescuento, Number(descuentoPct)) : 0;
   const totalArsNeto = t.totalArs - descuentoMonto;
   const arsSiTodoEnPesos = totalArsNeto + envioCosto + t.totalUsd * tc;
@@ -234,7 +234,7 @@ export function NuevaVentaPage() {
             <div className="rounded-md bg-surface-2 p-3 text-sm">
               <div className="flex justify-between"><span className="text-text-soft">A cobrar en dólares</span><span className="font-bold">{formatUsd(t.totalUsd)}</span></div>
               {descuentoMonto > 0 && (
-                <div className="flex justify-between"><span className="text-text-soft">Descuento efectivo {Number(descuentoPct)}%</span><span className="font-bold text-success">−{formatMoney(descuentoMonto)}</span></div>
+                <div className="flex justify-between"><span className="text-text-soft">Descuento {Number(descuentoPct)}%</span><span className="font-bold text-success">−{formatMoney(descuentoMonto)}</span></div>
               )}
               <div className="flex justify-between"><span className="text-text-soft">A cobrar en pesos {envioCosto > 0 ? '(con envío)' : ''}</span><span className="font-bold">{formatMoney(totalArsNeto + envioCosto)}</span></div>
               {t.totalUsd > 0 && tc > 0 && (
@@ -267,7 +267,7 @@ export function NuevaVentaPage() {
                       onChange={(e) => setAplicarDescuento(e.target.checked)}
                       className="h-4 w-4 accent-[var(--ti-accent)]"
                     />
-                    Aplicar descuento por pago en efectivo <span className="font-normal text-text-soft">(solo accesorios en pesos)</span>
+                    Aplicar descuento <span className="font-normal text-text-soft">(solo accesorios en pesos)</span>
                   </label>
                   <div className="flex items-center gap-1.5">
                     <input

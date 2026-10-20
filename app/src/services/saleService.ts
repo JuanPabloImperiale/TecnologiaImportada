@@ -43,7 +43,7 @@ export interface NuevaVentaInput {
   canal: CanalVenta;
   cliente?: { nombre?: string; celular?: string; cuitDni?: string };
   pedidoId?: string;
-  /** % de descuento por pago en efectivo sobre los items en pesos. */
+  /** % de descuento sobre accesorios vendidos en pesos. */
   descuentoPorcentaje?: number;
 }
 

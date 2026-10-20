@@ -103,13 +103,12 @@ En una venta, el importe cobrado en USD se registra como efectivo en dólares. E
 
 **No se aplica recargo de tarjeta en la lógica vigente.** La app tampoco obtiene automáticamente la cotización para una nueva venta: cuando parte de un total USD se cobra en pesos, la persona que registra la venta debe cargar la cotización utilizada. No completes una cotización estimada como si fuera un dato confirmado.
 
-### Descuento por efectivo
+### Descuento en ventas
 
-- Es opcional y se propone cuando el medio en pesos es **Efectivo** y la venta contiene accesorios cotizados en ARS que califican para el descuento.
+- Es opcional y se puede aplicar con cualquier medio de pago cuando la venta contiene accesorios cotizados en ARS que califican para el descuento.
 - El porcentaje sugerido se configura en Configuración y se puede modificar en la venta.
 - El descuento se calcula solo sobre la base elegible: **accesorios en ARS cobrados como venta**. No alcanza productos en USD, bonificaciones ni envío.
 - El importe del descuento se resta del total en ARS y aparece en el detalle de la venta y en el balance.
-- Cambiar el medio a transferencia o QR no equivale a conservar un descuento de efectivo.
 
 ### Bonificaciones (regalos)
 
