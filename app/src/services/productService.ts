@@ -21,6 +21,7 @@ import { db } from '@/lib/firebase';
 import { run, type Result } from './result';
 import { registrarMovimiento } from './movimientosService';
 import { slugify } from '@/lib/utils';
+import { createSharedSubscription } from '@/lib/sharedSubscription';
 import type { Producto, Negocio } from '@/models';
 import type { ProductoForm } from '@/schemas';
 
@@ -50,6 +51,27 @@ function clean<T extends Record<string, unknown>>(obj: T): T {
 function mapProducto(snapshot: QueryDocumentSnapshot<DocumentData>): Producto {
   return { id: snapshot.id, ...(snapshot.data() as Omit<Producto, 'id'>) };
 }
+
+const activeProductsSubscription = createSharedSubscription<Producto[]>((onData, onError) =>
+  onSnapshot(
+    query(col, where('activo', '==', true)),
+    (snap) => {
+      const items = snap.docs
+        .map((d) => ({ id: d.id, ...(d.data() as Omit<Producto, 'id'>) }))
+        .sort((a, b) => a.nombre.localeCompare(b.nombre));
+      try {
+        localStorage.setItem(PUBLIC_PRODUCTS_CACHE_KEY, JSON.stringify(items));
+      } catch {
+        // no-op: si storage está lleno o bloqueado, seguimos sin cache.
+      }
+      onData(items);
+    },
+    (err) => {
+      console.error('[productService]', err);
+      onError('No se pudieron cargar los productos.');
+    },
+  ),
+);
 
 async function getProductPage(
   filters: QueryConstraint[],
@@ -99,25 +121,7 @@ export const productService = {
 
   /** Suscripción pública: solo productos activos (de ambas unidades). */
   subscribeActive(onData: (items: Producto[]) => void, onError: (msg: string) => void): () => void {
-    const q = query(col, where('activo', '==', true));
-    return onSnapshot(
-      q,
-      (snap) => {
-        const items = snap.docs
-          .map((d) => ({ id: d.id, ...(d.data() as Omit<Producto, 'id'>) }))
-          .sort((a, b) => a.nombre.localeCompare(b.nombre));
-        try {
-          localStorage.setItem(PUBLIC_PRODUCTS_CACHE_KEY, JSON.stringify(items));
-        } catch {
-          // no-op: si storage está lleno o bloqueado, seguimos sin cache.
-        }
-        onData(items);
-      },
-      (err) => {
-        console.error('[productService]', err);
-        onError('No se pudieron cargar los productos.');
-      },
-    );
+    return activeProductsSubscription.subscribe(onData, (error) => onError(String(error)));
   },
 
   subscribeFeatured(onData: (items: Producto[]) => void, onError: (msg: string) => void): () => void {
