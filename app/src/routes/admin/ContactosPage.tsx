@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState, useEffect } from 'react';
 import { MessageCircle, Search, User, Edit2, Trash2, Check, X, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { contactService, type Contacto, type ContactoPage } from '@/services/contactService';
+import { useSearchInput } from '@/hooks/useSearchInput';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -17,7 +18,7 @@ export function ContactosPage() {
   const [error, setError] = useState<string | null>(null);
   const [cursor, setCursor] = useState<ContactoPage['cursor']>(null);
   const [hasMore, setHasMore] = useState(false);
-  const [q, setQ] = useState('');
+  const [searchInput, setQ, q, searchPending] = useSearchInput();
   const [editingCelular, setEditingCelular] = useState<string | null>(null);
   const [editingNombre, setEditingNombre] = useState('');
   const [saving, setSaving] = useState(false);
@@ -99,7 +100,7 @@ export function ContactosPage() {
       </div>
       <div className="relative mb-4 max-w-md">
         <Search size={17} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-soft" aria-hidden="true" />
-        <Input placeholder="Buscar por nombre o celular…" value={q} onChange={(e) => setQ(e.target.value)} className="pl-9" />
+        <Input placeholder="Buscar por nombre o celular…" value={searchInput} loading={searchPending} onChange={(e) => setQ(e.target.value)} className="pl-9" />
       </div>
       <p className="mb-3 text-xs text-text-soft">
         Los contactos se cargan por páginas y la búsqueda filtra los registros ya cargados.

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Gift, Link2, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCatalog } from '@/hooks/useCatalog';
+import { useSearchInput } from '@/hooks/useSearchInput';
 import { regaloService, type RegaloCursor } from '@/services/regaloService';
 import { productService } from '@/services/productService';
 import { saleService } from '@/services/saleService';
@@ -37,7 +38,7 @@ const MONTH_OPTIONS = [
 
 export function RegalosPage() {
   const [ym, setYm] = useState(monthKey(new Date()));
-  const [busqueda, setBusqueda] = useState('');
+  const [busquedaInput, setBusqueda, busqueda, searchPending] = useSearchInput();
   const [lineas, setLineas] = useState<LineaRegalo[]>([]);
   const [ventaNumero, setVentaNumero] = useState('');
   const [venta, setVenta] = useState<Venta | null>(null);
@@ -50,7 +51,7 @@ export function RegalosPage() {
   const [error, setError] = useState<string | null>(null);
   const [cursor, setCursor] = useState<RegaloCursor | null>(null);
   const [hasMore, setHasMore] = useState(false);
-  const { all, catMap, loading: loadingCatalog } = useCatalog({ loadProducts: true });
+  const { all, catMap, loading: loadingCatalog } = useCatalog({ loadProducts: Boolean(busqueda.trim()) });
   const [year, month] = ym.split('-');
   const yearOptions = useMemo(() => {
     const currentYear = new Date().getFullYear();
@@ -194,7 +195,8 @@ export function RegalosPage() {
             <Input
               label="Accesorio"
               placeholder="Buscar funda, vidrio, cargador…"
-              value={busqueda}
+              value={busquedaInput}
+              loading={searchPending || loadingCatalog}
               onChange={(e) => setBusqueda(e.target.value)}
               className="pl-9"
             />

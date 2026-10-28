@@ -1,14 +1,15 @@
 import { forwardRef, useState, type InputHTMLAttributes } from 'react';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;
+  loading?: boolean;
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
-  { label, error, className, id, type = 'text', ...props },
+  { label, error, loading = false, className, id, type = 'text', ...props },
   ref,
 ) {
   const inputId = id ?? props.name;
@@ -29,15 +30,22 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           id={inputId}
           type={effectiveType}
           aria-invalid={!!error}
+          aria-busy={loading || undefined}
           className={cn(
             'h-11 w-full rounded-md border bg-surface-2 px-3.5 text-[15px] text-text placeholder:text-text-faint',
             'transition-colors focus:outline-none focus-visible:outline-none',
-            isPassword && 'pr-11',
+            (isPassword || loading) && 'pr-11',
+            isPassword && loading && 'pr-20',
             error ? 'border-danger' : 'border-line focus:border-line-strong',
             className,
           )}
           {...props}
         />
+        {loading && (
+          <span role="status" aria-label="Buscando" className={cn('pointer-events-none absolute top-1/2 -translate-y-1/2 text-text-soft', isPassword ? 'right-12' : 'right-3')}>
+            <Loader2 size={18} className="animate-spin" aria-hidden="true" />
+          </span>
+        )}
         {isPassword && (
           <button
             type="button"

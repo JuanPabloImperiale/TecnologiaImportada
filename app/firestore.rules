@@ -48,6 +48,7 @@ service cloud.firestore {
     match /cuentasCobrar/{id}     { allow read, write: if signedIn(); }
     match /gastos/{id}            { allow read, write: if signedIn(); }
     match /movimientosStock/{id}  { allow read, write: if signedIn(); }
+    match /stockBajo/{id}         { allow read, write: if signedIn(); }
     match /importBatches/{id}     { allow read, write: if signedIn(); }
     match /counters/{id}          { allow read, write: if signedIn(); }
     match /balances/{id}          { allow read, write: if signedIn(); }

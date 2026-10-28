@@ -172,6 +172,7 @@ export interface Venta {
   numero: number;
   negocio: Negocio | 'mixta';
   items: ItemVenta[];
+  productIds?: string[];
   /** Ingresos por moneda (items de tipo venta), sin conversión. `totalArs` ya tiene restado `descuento`. */
   totalUsd: number;
   totalArs: number;

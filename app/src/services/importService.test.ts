@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   limit: vi.fn((count: number) => ({ type: 'limit', count })),
   orderBy: vi.fn((field: string, direction: string) => ({ type: 'orderBy', field, direction })),
   query: vi.fn((...constraints: unknown[]) => constraints),
+  runTransaction: vi.fn(),
 }));
 
 vi.mock('firebase/firestore', () => ({
@@ -17,12 +18,14 @@ vi.mock('firebase/firestore', () => ({
   limit: mocks.limit,
   orderBy: mocks.orderBy,
   query: mocks.query,
+  runTransaction: mocks.runTransaction,
   serverTimestamp: vi.fn(),
   updateDoc: vi.fn(),
 }));
 
 vi.mock('@/lib/firebase', () => ({ db: {}, auth: { currentUser: null } }));
 vi.mock('@/services/movimientosService', () => ({ registrarMovimiento: vi.fn() }));
+vi.mock('./productService', () => ({ invalidateProductSearchCache: vi.fn() }));
 
 import { importService } from './importService';
 

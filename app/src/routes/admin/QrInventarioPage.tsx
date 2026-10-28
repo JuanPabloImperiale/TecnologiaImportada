@@ -3,6 +3,7 @@ import { Printer, QrCode, Search, RefreshCw } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { productService, type ProductoCursor } from '@/services/productService';
 import { useCategories } from '@/hooks/useCategories';
+import { useSearchInput } from '@/hooks/useSearchInput';
 import { QR_LABELS_PER_PAGE } from '@/components/admin/QrLabelSheet';
 import { useQrPrint } from '@/hooks/useQrPrint';
 import { UnitTabs } from '@/components/admin/UnitTabs';
@@ -30,7 +31,7 @@ export function QrInventarioPage() {
   const [hasMore, setHasMore] = useState(false);
   const [negocio, setNegocio] = useState<Negocio>('productos');
   const [categoriaId, setCategoriaId] = useState('');
-  const [q, setQ] = useState('');
+  const [searchInput, setQ, q, searchPending] = useSearchInput();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectedItems, setSelectedItems] = useState<Map<string, Producto>>(new Map());
 
@@ -50,28 +51,27 @@ export function QrInventarioPage() {
     setLoadingMore(false);
   }, []);
 
-  useEffect(() => { void cargarPagina(null, true); }, [cargarPagina]);
+  useEffect(() => {
+    if (!q.trim() && !categoriaId) void cargarPagina(null, true);
+  }, [cargarPagina, q, categoriaId]);
 
   useEffect(() => {
     const term = q.trim();
     if (!term && !categoriaId) return;
     let active = true;
-    const timer = window.setTimeout(() => {
-      setLoading(true);
-      void productService.searchAll({ soloActivos: true }).then((result) => {
-        if (!active) return;
-        if (result.ok) {
-          setAll(result.data);
-          setCursor(null);
-          setHasMore(false);
-          setError(null);
-        } else setError(result.error.message);
-        setLoading(false);
-      });
-    }, 250);
+    setLoading(true);
+    void productService.searchAll({ soloActivos: true }).then((result) => {
+      if (!active) return;
+      if (result.ok) {
+        setAll(result.data);
+        setCursor(null);
+        setHasMore(false);
+        setError(null);
+      } else setError(result.error.message);
+      setLoading(false);
+    });
     return () => {
       active = false;
-      window.clearTimeout(timer);
     };
   }, [q, categoriaId]);
 
@@ -168,11 +168,11 @@ export function QrInventarioPage() {
           />
           <Input
             placeholder="Buscar por nombre, SKU o categoría…"
-            value={q}
+            value={searchInput}
+            loading={searchPending || loading}
             onChange={(e) => {
               const value = e.target.value;
               setQ(value);
-              if (!value.trim()) void cargarPagina(null, true);
             }}
             className="pl-9"
           />
@@ -183,7 +183,6 @@ export function QrInventarioPage() {
           onChange={(e) => {
             const value = e.target.value;
             setCategoriaId(value);
-            if (!value && !q.trim()) void cargarPagina(null, true);
           }}
           placeholder="Todas las categorías"
           options={categoriasUnidad.map((c) => ({ value: c.id, label: c.nombre }))}

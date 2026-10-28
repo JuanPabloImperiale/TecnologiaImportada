@@ -18,6 +18,8 @@ import {
 import { auth, db } from '@/lib/firebase';
 import { monthDateRange } from '@/lib/utils';
 import { fail, ok, type Result } from './result';
+import { syncLowStockIndex } from './lowStockService';
+import { invalidateProductSearchCache } from './productService';
 import type { Regalo, RegaloItem } from '@/models';
 
 const col = collection(db, 'regalos');
@@ -115,9 +117,9 @@ export const regaloService = {
 
         products.forEach((product, index) => {
           const item = items[index];
-          transaction.update(productRefs[index], {
-            stock: Number(product.data()?.stock ?? 0) - item.cantidad,
-          });
+          const stock = Number(product.data()?.stock ?? 0) - item.cantidad;
+          transaction.update(productRefs[index], { stock });
+          syncLowStockIndex(transaction, item.productId, product.data() ?? null, { ...product.data(), stock });
           transaction.set(doc(collection(db, 'movimientosStock')), {
             productId: item.productId,
             tipo: 'regalo',
@@ -128,6 +130,7 @@ export const regaloService = {
           });
         });
       });
+      invalidateProductSearchCache();
       return ok({ id: regaloRef.id });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo registrar el regalo.';
@@ -193,6 +196,7 @@ export const regaloService = {
           const newQuantity = input.items.find((item) => item.productId === productId)?.cantidad ?? 0;
           const stock = Number(product.data().stock ?? 0) + oldQuantity - newQuantity;
           transaction.update(doc(db, 'products', productId), { stock });
+          syncLowStockIndex(transaction, productId, product.data(), { ...product.data(), stock });
           if (oldQuantity !== newQuantity) {
             transaction.set(doc(collection(db, 'movimientosStock')), {
               productId,
@@ -212,6 +216,7 @@ export const regaloService = {
           actualizadoEn: serverTimestamp(),
         });
       });
+      invalidateProductSearchCache();
       return ok(undefined);
     } catch (error) {
       return fail('regalo', error instanceof Error ? error.message : 'No se pudo editar el regalo.', error);

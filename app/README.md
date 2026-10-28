@@ -166,3 +166,42 @@ Pendiente operativo de despliegue: publicar reglas/hosting, terminar App Check e
 ## Convención clave
 Un componente nunca llama a Firestore directo. Flujo: **componente → hook → service → Firebase**.
 Nunca hardcodear colores: usar los tokens (`bg-surface`, `text-text`, `bg-accent`, etc.).
+
+## Control de lecturas de Firestore
+- Firestore usa cache persistente IndexedDB compartida entre pestanas. Los datos pueden permanecer en el dispositivo despues de cerrar sesion: usar el panel en dispositivos de confianza.
+- Las busquedas completas de productos y el historial de ventas reutilizan resultados durante 60 segundos en memoria y comparten consultas simultaneas. Los errores no se guardan en cache.
+- Los cambios de productos invalidan su cache de busqueda. Crear o anular ventas invalida tambien el stock; facturar invalida el historial. El boton Actualizar de Ventas fuerza la consulta al servidor.
+- La pagina de catalogo tiene una sola carga inicial/restablecimiento; no carga una pagina sin filtro al buscar dentro de una categoria.
+- Las modificaciones desde otros dispositivos pueden demorar hasta 60 segundos en verse en estas busquedas. Las transacciones siguen validando el stock en el servidor.
+- Los buscadores aplican el texto despues de 1,2 segundos sin escritura; borrar limpia el filtro inmediatamente. El indicador giratorio permanece visible durante la espera y la consulta.
+- Inventario abre con 30 productos y obtiene el contador global desde `stockBajo`, sin escanear todos los productos. El filtro y el dashboard consultan ese mismo indice.
+- Stock bajo requiere producto activo, minimo configurado mayor que cero y stock menor o igual al minimo. Sin minimo o con minimo cero no aplica la alerta, incluso si el stock es cero.
+- Altas, ediciones, activaciones, bajas, ventas, anulaciones, importaciones, regalos y reservas mantienen el indice junto con el cambio de producto, en la misma transaccion o batch. Una entrada se retira al reponer, desactivar o eliminar el producto. Las operaciones confirmadas descartan la cache de productos; crear, anular o convertir ventas descarta ademas el historial correspondiente.
+- El filtro de ventas por producto consulta `productIds` con `array-contains` y ordena por fecha, sin descargar el historial completo. Las ventas nuevas, incluidas las convertidas de cuentas a cobrar, guardan ese campo.
+- La cache no garantiza consumo cero ni un limite diario. Medir otras 24 horas con trafico comparable; la consola de Firestore tambien genera lecturas. El cupo gratis es de 50.000 lecturas por dia y se reinicia alrededor de medianoche del Pacifico, no de Argentina.
+- Para costo cero estricto, revisar el plan del proyecto. Spark limita el servicio al agotar cuotas; en Blaze se factura el exceso y una alerta de presupuesto no es un corte automatico.
+
+Referencia: https://firebase.google.com/docs/firestore/pricing
+
+### Publicacion del filtro indexado de ventas
+Antes de publicar Hosting se debe crear el indice de `ventas.productIds` + `creado DESC` definido en `firestore.indexes.json` y adaptar las ventas antiguas. No cambiar las reglas de seguridad para esta tarea.
+
+```bash
+npx firebase-tools deploy --only firestore:indexes --project tecnologiaimportada
+npm exec --yes --package=firebase-tools -- node scripts/backfillVentaProductIds.mjs --project tecnologiaimportada
+npm exec --yes --package=firebase-tools -- node scripts/backfillVentaProductIds.mjs --project tecnologiaimportada --apply
+```
+
+El segundo comando simula sin escribir. Cada ejecucion lee una vez todas las ventas; `--apply` agrega o corrige solo `productIds` en las pendientes, sin tocar precios, items, estado ni stock. Es idempotente y usa la version del documento para no pisar cambios concurrentes. Si falla, corregir la causa y volver a ejecutar. La cuenta autenticada con `firebase login` necesita permisos de Firestore en el proyecto; no se imprimen ni se guardan tokens en el repo.
+
+Verificar que el indice este listo antes de publicar Hosting y volver a ejecutar la simulacion despues del corte para detectar ventas creadas por clientes con la version anterior. Todavia puede haber lectores con la app anterior: pedir que recarguen.
+
+### Inicializar stock bajo
+La coleccion `stockBajo` permite lectura y escritura solo al equipo autenticado. Publicar las reglas de la coleccion antes del nuevo Hosting. Inicializarla una vez con:
+
+```bash
+npm exec --yes --package=firebase-tools -- node scripts/backfillLowStock.mjs --project tecnologiaimportada
+npm exec --yes --package=firebase-tools -- node scripts/backfillLowStock.mjs --project tecnologiaimportada --apply
+```
+
+La simulacion no escribe. La aplicacion verifica versiones, actualiza entradas necesarias y elimina las que ya no cumplen la condicion, sin modificar los productos. Repetir despues del corte para reconciliar posibles cambios hechos desde clientes antiguos. Los cambios manuales desde consola o scripts externos tambien requieren reconciliar este indice.

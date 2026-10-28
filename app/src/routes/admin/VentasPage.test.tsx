@@ -6,7 +6,7 @@ import { saleService } from '@/services/saleService';
 import { useCatalog } from '@/hooks/useCatalog';
 import { VentasPage } from './VentasPage';
 
-vi.mock('@/services/saleService', () => ({ saleService: { getPage: vi.fn(), getAll: vi.fn() } }));
+vi.mock('@/services/saleService', () => ({ saleService: { getPage: vi.fn(), getAll: vi.fn(), getByProduct: vi.fn() } }));
 vi.mock('@/hooks/useCatalog', () => ({ useCatalog: vi.fn() }));
 
 const fecha = { toDate: () => new Date('2026-10-10T12:00:00') } as Venta['creado'];
@@ -55,6 +55,7 @@ async function buscar(texto: string) {
   await act(async () => {
     renderer.root.findByProps({ 'aria-label': 'Buscar producto para filtrar ventas' }).props.onChange({ target: { value: texto } });
   });
+  await act(async () => { await vi.advanceTimersByTimeAsync(1_200); });
 }
 
 async function seleccionar() {
@@ -63,13 +64,17 @@ async function seleccionar() {
 }
 
 beforeEach(() => {
+  vi.useFakeTimers();
   vi.clearAllMocks();
   vi.mocked(useCatalog).mockReturnValue({ all: [producto], products: [producto], featured: [], categorias: [], catMap: new Map([['telefonos', 'Teléfonos']]), loading: false, error: null });
   vi.mocked(saleService.getPage).mockResolvedValue({ ok: true, data: { ventas: recientes, cursor: null, hasMore: true } });
-  vi.mocked(saleService.getAll).mockResolvedValue({ ok: true, data: historicas });
+  vi.mocked(saleService.getByProduct).mockResolvedValue({ ok: true, data: historicas.filter((venta) => venta.items.some((item) => item.productId === producto.id)) });
 });
 
-afterEach(() => { if (renderer) act(() => renderer.unmount()); });
+afterEach(() => {
+  if (renderer) act(() => renderer.unmount());
+  vi.useRealTimers();
+});
 
 describe('VentasPage: filtro por producto', () => {
   it('busca por nombre, SKU y categoría sin cargar el historial hasta seleccionar', async () => {
@@ -81,6 +86,7 @@ describe('VentasPage: filtro por producto', () => {
     }
     expect(vi.mocked(useCatalog).mock.lastCall?.[0]).toEqual({ loadProducts: true });
     expect(saleService.getAll).not.toHaveBeenCalled();
+    expect(saleService.getByProduct).not.toHaveBeenCalled();
     await buscar('inexistente');
     expect(JSON.stringify(renderer.toJSON())).toContain('Sin productos coincidentes.');
   });
@@ -89,7 +95,9 @@ describe('VentasPage: filtro por producto', () => {
     await montar();
     expect(enlacesVentas()).toHaveLength(30);
     await seleccionar();
-    expect(saleService.getAll).toHaveBeenCalledTimes(1);
+    expect(saleService.getAll).not.toHaveBeenCalled();
+    expect(saleService.getByProduct).toHaveBeenCalledTimes(1);
+    expect(saleService.getByProduct).toHaveBeenLastCalledWith('iphone', false);
     expect(enlacesVentas()).toEqual(['/adm/ventas/venta-3', '/adm/ventas/venta-2']);
     expect(JSON.stringify(renderer.toJSON())).not.toContain('Cargar 30 ventas anteriores');
     await act(async () => { renderer.root.findByProps({ 'aria-label': 'Quitar filtro de producto' }).props.onClick(); });
@@ -112,21 +120,22 @@ describe('VentasPage: filtro por producto', () => {
       renderer.root.findByProps({ placeholder: 'Buscar por N° o cliente…' }).props.onChange({ target: { value: 'Ana' } });
     });
     expect(enlacesVentas()).toEqual(['/adm/ventas/venta-3']);
-    expect(saleService.getAll).toHaveBeenCalledTimes(1);
+    expect(saleService.getByProduct).toHaveBeenCalledTimes(1);
   });
 
   it('muestra errores del historial y permite reintentar', async () => {
-    vi.mocked(saleService.getAll).mockResolvedValueOnce({ ok: false, error: { code: 'red', message: 'No se pudo cargar el historial.' } });
+    vi.mocked(saleService.getByProduct).mockResolvedValueOnce({ ok: false, error: { code: 'red', message: 'No se pudo cargar el historial.' } });
     await montar();
     await seleccionar();
     expect(JSON.stringify(renderer.toJSON())).toContain('No se pudo cargar el historial.');
     await act(async () => { boton('Actualizar').props.onClick(); });
+    expect(saleService.getByProduct).toHaveBeenLastCalledWith('iphone', true);
     expect(enlacesVentas()).toEqual(['/adm/ventas/venta-3', '/adm/ventas/venta-2']);
   });
 
   it('ignora el historial pendiente si se quita el producto antes de recibirlo', async () => {
-    let resolver!: (value: Awaited<ReturnType<typeof saleService.getAll>>) => void;
-    vi.mocked(saleService.getAll).mockReturnValueOnce(new Promise((resolve) => { resolver = resolve; }));
+    let resolver!: (value: Awaited<ReturnType<typeof saleService.getByProduct>>) => void;
+    vi.mocked(saleService.getByProduct).mockReturnValueOnce(new Promise((resolve) => { resolver = resolve; }));
     await montar();
     await seleccionar();
     await act(async () => { renderer.root.findByProps({ 'aria-label': 'Quitar filtro de producto' }).props.onClick(); });

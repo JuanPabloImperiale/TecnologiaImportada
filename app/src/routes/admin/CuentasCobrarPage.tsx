@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Plus, Search, CreditCard, Ban, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCatalog } from '@/hooks/useCatalog';
+import { useSearchInput } from '@/hooks/useSearchInput';
 import { cuentaCobrarService, type CuentaCobrarItemInput } from '@/services/cuentaCobrarService';
 import { DEFAULT_MEDIOS_PAGO, settingsService } from '@/services/settingsService';
 import { calcularSaldosCuenta, filtrarProductosCuenta } from '@/lib/cuentasCobrar';
@@ -67,7 +68,7 @@ export function CuentasCobrarPage() {
   const [cuentas, setCuentas] = useState<CuentaCobrar[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [q, setQ] = useState('');
+  const [searchInput, setQ, q, searchPending] = useSearchInput();
 
   useEffect(() => {
     const unsubscribe = cuentaCobrarService.subscribe(
@@ -100,7 +101,7 @@ export function CuentasCobrarPage() {
 
       <div className="relative mb-4">
         <Search size={17} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-soft" aria-hidden="true" />
-        <Input placeholder="Buscar por número, cliente o celular…" value={q} onChange={(event) => setQ(event.target.value)} className="pl-9" />
+        <Input placeholder="Buscar por número, cliente o celular…" value={searchInput} loading={searchPending || loading} onChange={(event) => setQ(event.target.value)} className="pl-9" />
       </div>
 
       {loading ? <Spinner /> : error ? <EmptyState title="Error" description={error} /> : filtradas.length === 0 ? (
@@ -135,9 +136,8 @@ export function CuentasCobrarPage() {
 
 export function NuevaCuentaCobrarPage() {
   const navigate = useNavigate();
-  const [q, setQ] = useState('');
-  const [catalogoActivado, setCatalogoActivado] = useState(false);
-  const { products, catMap, loading: loadingProducts } = useCatalog({ negocio: 'productos', loadProducts: catalogoActivado });
+  const [searchInput, setQ, q, searchPending] = useSearchInput();
+  const { products, catMap, loading: loadingProducts } = useCatalog({ negocio: 'productos', loadProducts: Boolean(q.trim()) });
   const [lineas, setLineas] = useState<LineaEdicion[]>([]);
   const [cliente, setCliente] = useState({ nombre: '', celular: '', cuitDni: '' });
   const [canal, setCanal] = useState<'presencial' | 'whatsapp'>('presencial');
@@ -192,11 +192,12 @@ export function NuevaCuentaCobrarPage() {
             <Input
               label="Buscar producto"
               placeholder="Nombre, SKU o categoría"
-              value={q}
-              onChange={(event) => { setQ(event.target.value); if (event.target.value.trim()) setCatalogoActivado(true); }}
+              value={searchInput}
+              loading={searchPending || loadingProducts}
+              onChange={(event) => setQ(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Escape') setQ('');
-                if (event.key === 'Enter' && candidatos[0]) {
+                if (event.key === 'Enter' && searchInput === q && candidatos[0]) {
                   event.preventDefault();
                   agregar(candidatos[0]);
                 }

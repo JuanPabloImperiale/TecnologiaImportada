@@ -15,6 +15,9 @@ import { calcularSaldosCuenta, fechaCompletaCuenta, validarPagoCuenta } from '@/
 import { MEDIOS_PAGO } from '@/lib/mediosPago';
 import { settingsService } from '@/services/settingsService';
 import { fail, ok, type Result } from './result';
+import { invalidateSaleHistoryCache } from './saleService';
+import { invalidateProductSearchCache } from './productService';
+import { syncLowStockIndex } from './lowStockService';
 import type {
   CuentaCobrar,
   ItemVenta,
@@ -106,7 +109,7 @@ export const cuentaCobrarService = {
       const productRefs = input.items.map((item) => doc(db, 'products', item.productId));
       const movementRefs = input.items.map(() => doc(collection(db, 'movimientosStock')));
 
-      return runTransaction(db, async (transaction) => {
+      const result = await runTransaction(db, async (transaction) => {
         const counterSnapshot = await transaction.get(counterRef);
         const products = await Promise.all(productRefs.map((ref) => transaction.get(ref)));
         const numero = ((counterSnapshot.data()?.ultimo as number) ?? 0) + 1;
@@ -171,7 +174,9 @@ export const cuentaCobrarService = {
 
         products.forEach((product, index) => {
           const item = items[index];
-          transaction.update(productRefs[index], { stock: ((product.data()?.stock as number) ?? 0) - item.cantidad });
+          const stock = ((product.data()?.stock as number) ?? 0) - item.cantidad;
+          transaction.update(productRefs[index], { stock });
+          syncLowStockIndex(transaction, item.productId, product.data() ?? null, { ...product.data(), stock });
           transaction.set(movementRefs[index], {
             productId: item.productId,
             tipo: 'reserva',
@@ -183,6 +188,8 @@ export const cuentaCobrarService = {
         });
         return { id: cuentaRef.id, numero };
       });
+      invalidateProductSearchCache();
+      return result;
     });
   },
 
@@ -233,7 +240,7 @@ export const cuentaCobrarService = {
     return runCuenta(async () => {
       const counterRef = doc(db, 'counters', 'ventas');
       const ventaRef = doc(collection(db, 'ventas'));
-      return runTransaction(db, async (transaction) => {
+      const result = await runTransaction(db, async (transaction) => {
         const ref = doc(db, 'cuentasCobrar', id);
         const [snapshot, counterSnapshot] = await Promise.all([transaction.get(ref), transaction.get(counterRef)]);
         if (!snapshot.exists()) throw new Error('La cuenta no existe.');
@@ -251,6 +258,7 @@ export const cuentaCobrarService = {
           numero,
           negocio: 'productos',
           items: cuenta.items,
+          productIds: [...new Set(cuenta.items.map((item) => item.productId))],
           totalUsd,
           totalArs,
           costoUsd,
@@ -283,12 +291,14 @@ export const cuentaCobrarService = {
         transaction.update(ref, { estado: 'convertida', ventaId: ventaRef.id, numeroVenta: numero });
         return { id: ventaRef.id, numero };
       });
+      invalidateSaleHistoryCache();
+      return result;
     });
   },
 
   cancelar(id: string) {
     return runCuenta(async () => {
-      return runTransaction(db, async (transaction) => {
+      await runTransaction(db, async (transaction) => {
         const ref = doc(db, 'cuentasCobrar', id);
         const snapshot = await transaction.get(ref);
         if (!snapshot.exists()) throw new Error('La cuenta no existe.');
@@ -303,9 +313,9 @@ export const cuentaCobrarService = {
         products.forEach((product, index) => {
           if (!product.exists()) return;
           const item = cuenta.items[index];
-          transaction.update(productRefs[index], {
-            stock: ((product.data().stock as number) ?? 0) + item.cantidad,
-          });
+          const stock = ((product.data().stock as number) ?? 0) + item.cantidad;
+          transaction.update(productRefs[index], { stock });
+          syncLowStockIndex(transaction, item.productId, product.data(), { ...product.data(), stock });
           transaction.set(movementRefs[index], {
             productId: item.productId,
             tipo: 'liberacion',
@@ -317,6 +327,7 @@ export const cuentaCobrarService = {
         });
         transaction.update(ref, { estado: 'cancelada' });
       });
+      invalidateProductSearchCache();
     });
   },
 };

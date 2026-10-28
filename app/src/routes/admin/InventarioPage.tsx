@@ -4,7 +4,10 @@ import { toast } from 'sonner';
 import { Plus, Search, Pencil, Trash2, ImageOff, AlertTriangle, QrCode, Printer, Copy, ExternalLink, RefreshCw } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useCategories } from '@/hooks/useCategories';
+import { useSearchInput } from '@/hooks/useSearchInput';
 import { productService, type ProductoCursor } from '@/services/productService';
+import { lowStockService } from '@/services/lowStockService';
+import { isLowStock } from '@/lib/stock';
 import { UnitTabs } from '@/components/admin/UnitTabs';
 import { useQrPrint } from '@/hooks/useQrPrint';
 import { Card } from '@/components/ui/Card';
@@ -29,36 +32,71 @@ export function InventarioPage() {
   const [hasMore, setHasMore] = useState(false);
   const { categories } = useCategories(negocio);
   const catMap = useMemo(() => new Map(categories.map((c) => [c.id, c.nombre])), [categories]);
-  const [q, setQ] = useState('');
+  const [searchInput, setQ, q, searchPending] = useSearchInput();
   const [soloStockBajo, setSoloStockBajo] = useState(false);
   const [categoriaId, setCategoriaId] = useState('');
-  const [stockBajoTotal, setStockBajoTotal] = useState(0);
+  const [stockBajoProductos, setStockBajoProductos] = useState<Producto[]>([]);
+  const [stockBajoLoading, setStockBajoLoading] = useState(true);
+  const [stockBajoError, setStockBajoError] = useState<string | null>(null);
+  const stockBajoTotal = stockBajoProductos.length;
   const requestId = useRef(0);
+
+  useEffect(() => {
+    setStockBajoLoading(true);
+    setStockBajoProductos([]);
+    setStockBajoError(null);
+    return lowStockService.subscribe(negocio, (items) => {
+      setStockBajoProductos(items);
+      setStockBajoLoading(false);
+      setStockBajoError(null);
+    }, (message) => {
+      setStockBajoError(message);
+      setStockBajoLoading(false);
+    });
+  }, [negocio]);
 
   const cargarPagina = useCallback(async (unidad: Negocio, desde: ProductoCursor | null, reemplazar: boolean) => {
     const currentRequest = ++requestId.current;
     if (reemplazar) setLoading(true);
     else setLoadingMore(true);
-    const resultado = await productService.getInventoryPage(unidad, 30, desde);
+    const resultado = soloStockBajo
+      ? await lowStockService.getByNegocio(unidad)
+      : q.trim() || categoriaId
+        ? await productService.searchAll({ negocio: unidad }, reemplazar)
+        : await productService.getInventoryPage(unidad, 30, desde);
     if (currentRequest !== requestId.current) return;
     if (resultado.ok) {
-      setProducts((actuales) => reemplazar ? resultado.data.products : [...actuales, ...resultado.data.products]);
-      setCursor(resultado.data.cursor);
-      setHasMore(resultado.data.hasMore);
+      if (Array.isArray(resultado.data)) {
+        if (soloStockBajo) setStockBajoProductos(resultado.data);
+        else setProducts(resultado.data);
+        setCursor(null);
+        setHasMore(false);
+      } else {
+        const page = resultado.data;
+        setProducts((actuales) => reemplazar ? page.products : [...actuales, ...page.products]);
+        setCursor(page.cursor);
+        setHasMore(page.hasMore);
+      }
       setError(null);
     } else {
       setError(resultado.error.message);
     }
     setLoading(false);
     setLoadingMore(false);
-  }, []);
+  }, [q, categoriaId, soloStockBajo]);
 
   useEffect(() => {
     const term = q.trim();
     const currentRequest = ++requestId.current;
+    if (soloStockBajo) {
+      setLoading(false);
+      setHasMore(false);
+      setError(null);
+      return;
+    }
     const cargar = async () => {
       setLoading(true);
-      const resultado = term || soloStockBajo || categoriaId
+      const resultado = term || categoriaId
         ? await productService.searchAll({ negocio })
         : await productService.getInventoryPage(negocio, 30, null);
       if (currentRequest !== requestId.current) return;
@@ -71,27 +109,13 @@ export function InventarioPage() {
       } else setError(resultado.error.message);
       setLoading(false);
     };
-    if (!term) {
-      void cargar();
-      return;
-    }
-    const timer = window.setTimeout(() => void cargar(), 250);
-    return () => window.clearTimeout(timer);
+    void cargar();
+    return () => { requestId.current += 1; };
   }, [q, negocio, soloStockBajo, categoriaId]);
 
-  useEffect(() => {
-    let active = true;
-    void productService.searchAll({ negocio }).then((resultado) => {
-      if (!active) return;
-      if (resultado.ok) {
-        setStockBajoTotal(resultado.data.filter((product) => product.activo && product.stock <= product.stockMinimo).length);
-      }
-    });
-    return () => { active = false; };
-  }, [negocio]);
-
   const filtered = useMemo(() => {
-    const filteredProducts = !q.trim() ? products : products.filter((p) =>
+    const source = soloStockBajo ? stockBajoProductos : products;
+    const filteredProducts = !q.trim() ? source : source.filter((p) =>
       matchesSearch(q, p.nombre, p.sku, catMap.get(p.categoriaId) ?? p.categoria),
     );
     const categoria = categories.find((item) => item.id === categoriaId);
@@ -99,9 +123,9 @@ export function InventarioPage() {
       ? filteredProducts.filter((p) => p.categoriaId === categoriaId || matchesSearch(categoria?.nombre ?? '', p.categoria, catMap.get(p.categoriaId)))
       : filteredProducts;
     return soloStockBajo
-      ? withCategory.filter((p) => p.activo && p.stock <= p.stockMinimo)
+      ? withCategory.filter(isLowStock)
       : withCategory;
-  }, [products, q, catMap, soloStockBajo, categoriaId, categories]);
+  }, [products, stockBajoProductos, q, catMap, soloStockBajo, categoriaId, categories]);
 
   const cambiarStockBajo = () => {
     const next = !soloStockBajo;
@@ -125,7 +149,10 @@ export function InventarioPage() {
   const toggleActivo = async (id: string, activo: boolean) => {
     const res = await productService.setActivo(id, activo);
     if (!res.ok) toast.error(res.error.message);
-    else toast.success(activo ? 'Producto activado.' : 'Producto desactivado.');
+    else {
+      setProducts((items) => items.map((item) => item.id === id ? { ...item, activo } : item));
+      toast.success(activo ? 'Producto activado.' : 'Producto desactivado.');
+    }
   };
 
   const eliminar = async () => {
@@ -135,6 +162,7 @@ export function InventarioPage() {
     setDeleting(false);
     setToDelete(null);
     if (res.ok) toast.success('Producto eliminado.');
+    if (res.ok) setProducts((items) => items.filter((item) => item.id !== toDelete.id));
     else toast.error(res.error.message);
   };
 
@@ -159,6 +187,7 @@ export function InventarioPage() {
       <p className="mb-3 text-xs text-text-soft">
         El buscador revisa todos los productos de la unidad seleccionada. Stock bajo usa el mínimo configurado en cada producto.
       </p>
+      {stockBajoError && <p role="alert" className="mb-3 text-sm text-danger">{stockBajoError}</p>}
 
       <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_240px_auto]">
         <div className="relative min-w-[220px] flex-1">
@@ -169,7 +198,8 @@ export function InventarioPage() {
           />
           <Input
             placeholder="Buscar por nombre, SKU o categoría…"
-            value={q}
+            value={searchInput}
+            loading={searchPending || loading}
             onChange={(e) => {
               const value = e.target.value;
               setQ(value);
@@ -195,7 +225,7 @@ export function InventarioPage() {
           </Button>
       </div>
 
-      {loading ? (
+      {loading || (soloStockBajo && stockBajoLoading) ? (
         <Spinner />
       ) : error ? (
         <EmptyState title="Error" description={error} />
@@ -207,7 +237,7 @@ export function InventarioPage() {
       ) : (
         <div className="flex flex-col gap-2">
           {filtered.map((p) => {
-            const bajo = p.stock <= p.stockMinimo;
+            const bajo = isLowStock(p);
             return (
               <Card key={p.id} className="flex items-center gap-4 p-3">
                 <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md bg-surface-2">

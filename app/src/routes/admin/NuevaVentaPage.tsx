@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { ArrowLeft, Search, Trash2, Gift, ShoppingBag } from 'lucide-react';
 import { useCatalog } from '@/hooks/useCatalog';
+import { useSearchInput } from '@/hooks/useSearchInput';
 import { saleService } from '@/services/saleService';
 import { DEFAULT_MEDIOS_PAGO, settingsService } from '@/services/settingsService';
 import { Card, CardBody } from '@/components/ui/Card';
@@ -24,8 +25,7 @@ export function NuevaVentaPage() {
   const pedido = (location.state as { pedido?: Pedido } | null)?.pedido;
 
   const [lineas, setLineas] = useState<Linea[]>([]);
-  const [busqueda, setBusqueda] = useState('');
-  const [catalogoActivado, setCatalogoActivado] = useState(false);
+  const [busquedaInput, setBusqueda, busqueda, searchPending] = useSearchInput();
   const [metodoEnvio, setMetodoEnvio] = useState<'retiro' | 'envio'>('retiro');
   const [costoEnvio, setCostoEnvio] = useState(0);
   const [tipoCambio, setTipoCambio] = useState('');
@@ -38,7 +38,7 @@ export function NuevaVentaPage() {
   const [cliente, setCliente] = useState<{ nombre: string; celular: string; cuitDni?: string }>({ nombre: '', celular: '', cuitDni: '' });
   const [guardando, setGuardando] = useState(false);
   const { all, catMap, loading: loadingCatalog } = useCatalog({
-    loadProducts: catalogoActivado || Boolean(pedido),
+    loadProducts: Boolean(busqueda.trim()) || Boolean(pedido),
   });
 
   const lineaDeProducto = (p: Producto): Linea => ({
@@ -178,7 +178,7 @@ export function NuevaVentaPage() {
           <CardBody className="flex flex-col gap-3">
             <div className="relative">
               <Search size={17} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-soft" aria-hidden="true" />
-              <Input placeholder="Buscar producto para agregar…" value={busqueda} onChange={(e) => { setBusqueda(e.target.value); if (e.target.value.trim()) setCatalogoActivado(true); }} className="pl-9" />
+              <Input placeholder="Buscar producto para agregar…" value={busquedaInput} loading={searchPending || loadingCatalog} onChange={(e) => setBusqueda(e.target.value)} className="pl-9" />
               {candidatos.length > 0 && (
                 <div className="absolute z-10 mt-1 max-h-80 w-full overflow-y-auto rounded-md border border-line bg-surface shadow-ti">
                   {candidatos.map((p) => (

@@ -1,7 +1,5 @@
 import {
-  addDoc,
   collection,
-  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -9,16 +7,19 @@ import {
   onSnapshot,
   orderBy,
   query,
+  runTransaction,
   serverTimestamp,
   startAfter,
-  updateDoc,
   where,
+  writeBatch,
   type DocumentData,
   type QueryConstraint,
   type QueryDocumentSnapshot,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { run, type Result } from './result';
+import { createQueryCache } from './queryCache';
+import { lowStockService, syncLowStockIndex } from './lowStockService';
 import { registrarMovimiento } from './movimientosService';
 import { slugify } from '@/lib/utils';
 import { createSharedSubscription } from '@/lib/sharedSubscription';
@@ -41,7 +42,17 @@ export interface ProductoSearchFilters {
 }
 
 const col = collection(db, 'products');
+const searchCache = createQueryCache<Producto[]>();
 export const PUBLIC_PRODUCTS_CACHE_KEY = 'ti_public_products_cache_v1';
+
+export function invalidateProductSearchCache() {
+  searchCache.clear();
+  try {
+    localStorage.removeItem(PUBLIC_PRODUCTS_CACHE_KEY);
+  } catch {
+    return;
+  }
+}
 
 /** Quita claves con valor undefined (Firestore no las acepta). */
 function clean<T extends Record<string, unknown>>(obj: T): T {
@@ -56,6 +67,7 @@ const activeProductsSubscription = createSharedSubscription<Producto[]>((onData,
   onSnapshot(
     query(col, where('activo', '==', true)),
     (snap) => {
+      invalidateProductSearchCache();
       const items = snap.docs
         .map((d) => ({ id: d.id, ...(d.data() as Omit<Producto, 'id'>) }))
         .sort((a, b) => a.nombre.localeCompare(b.nombre));
@@ -162,7 +174,12 @@ export const productService = {
         creado: serverTimestamp(),
         actualizado: serverTimestamp(),
       });
-      const docRef = await addDoc(col, payload);
+      const docRef = doc(col);
+      const batch = writeBatch(db);
+      batch.set(docRef, payload);
+      syncLowStockIndex(batch, docRef.id, null, payload);
+      await batch.commit();
+      invalidateProductSearchCache();
       if (data.stock > 0) {
         await registrarMovimiento(docRef.id, 'ingreso', data.stock, 'Alta de producto');
       }
@@ -172,13 +189,16 @@ export const productService = {
 
   update(id: string, data: ProductoInput): Promise<Result<void>> {
     return run(async () => {
-      const prev = await getDoc(doc(db, 'products', id));
-      const stockAnterior = prev.exists() ? ((prev.data() as Producto).stock ?? 0) : 0;
-
-      await updateDoc(
-        doc(db, 'products', id),
-        clean({ ...data, slug: slugify(data.nombre), actualizado: serverTimestamp() }),
-      );
+      const reference = doc(db, 'products', id);
+      const stockAnterior = await runTransaction(db, async (transaction) => {
+        const prev = await transaction.get(reference);
+        if (!prev.exists()) throw new Error('El producto ya no existe.');
+        const patch = clean({ ...data, slug: slugify(data.nombre), actualizado: serverTimestamp() });
+        transaction.update(reference, patch);
+        syncLowStockIndex(transaction, id, prev.data(), { ...prev.data(), ...patch });
+        return (prev.data().stock as number) ?? 0;
+      });
+      invalidateProductSearchCache();
 
       const diff = data.stock - stockAnterior;
       if (diff !== 0) {
@@ -190,7 +210,14 @@ export const productService = {
   /** Desactiva/activa (visibilidad en la tienda) sin borrar el documento. */
   setActivo(id: string, activo: boolean): Promise<Result<void>> {
     return run(async () => {
-      await updateDoc(doc(db, 'products', id), { activo, actualizado: serverTimestamp() });
+      const reference = doc(db, 'products', id);
+      await runTransaction(db, async (transaction) => {
+        const prev = await transaction.get(reference);
+        if (!prev.exists()) throw new Error('El producto ya no existe.');
+        transaction.update(reference, { activo, actualizado: serverTimestamp() });
+        syncLowStockIndex(transaction, id, prev.data(), { ...prev.data(), activo });
+      });
+      invalidateProductSearchCache();
     });
   },
 
@@ -201,9 +228,14 @@ export const productService = {
    */
   remove(id: string): Promise<Result<string[]>> {
     return run(async () => {
-      const snap = await getDoc(doc(db, 'products', id));
-      const imagenes = snap.exists() ? ((snap.data() as Producto).imagenes ?? []) : [];
-      await deleteDoc(doc(db, 'products', id));
+      const reference = doc(db, 'products', id);
+      const imagenes = await runTransaction(db, async (transaction) => {
+        const snap = await transaction.get(reference);
+        transaction.delete(reference);
+        syncLowStockIndex(transaction, id, snap.exists() ? snap.data() : null, null);
+        return snap.exists() ? ((snap.data() as Producto).imagenes ?? []) : [];
+      });
+      invalidateProductSearchCache();
       return imagenes;
     });
   },
@@ -216,29 +248,20 @@ export const productService = {
   },
 
   /** Carga el universo de búsqueda acotado a la unidad y estado solicitados. */
-  searchAll(filters: ProductoSearchFilters = {}): Promise<Result<Producto[]>> {
-    return run(async () => {
+  searchAll(filters: ProductoSearchFilters = {}, forceRefresh = false): Promise<Result<Producto[]>> {
+    if (forceRefresh) searchCache.clear();
+    const key = JSON.stringify([filters.negocio ?? '', filters.soloActivos ?? false]);
+    return searchCache.get(key, () => run(async () => {
       const constraints: QueryConstraint[] = [];
       if (filters.negocio) constraints.push(where('negocio', '==', filters.negocio));
       if (filters.soloActivos) constraints.push(where('activo', '==', true));
       const snapshot = await getDocs(query(col, ...constraints));
       return snapshot.docs.map(mapProducto);
-    });
+    }));
   },
 
   getLowStockProducts(maxResults = 6, pageSize = 30): Promise<Result<Producto[]>> {
-    return run(async () => {
-      const objetivo = Math.max(1, Math.min(maxResults, 30));
-      const productos: Producto[] = [];
-      let cursor: ProductoCursor | null = null;
-      let hasMore = true;
-      while (hasMore && productos.length < objetivo) {
-        const page = await getProductPage([where('activo', '==', true)], pageSize, cursor);
-        productos.push(...page.products.filter((product) => product.stock <= product.stockMinimo).slice(0, objetivo - productos.length));
-        cursor = page.cursor;
-        hasMore = page.hasMore;
-      }
-      return productos;
-    });
+    void pageSize;
+    return lowStockService.getTop(maxResults);
   },
 };

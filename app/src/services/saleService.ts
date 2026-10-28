@@ -16,13 +16,22 @@ import {
   updateDoc,
   where,
   type QueryDocumentSnapshot,
+  type QuerySnapshot,
 } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase';
 import { baseDescuentoEfectivo, calcDescuento, monthDateRange } from '@/lib/utils';
 import { run, ok, fail, type Result } from './result';
+import { createQueryCache } from './queryCache';
+import { invalidateProductSearchCache } from './productService';
+import { syncLowStockIndex } from './lowStockService';
 import type { Venta, ItemVenta, Negocio, CanalVenta, Envio, PagoVenta } from '@/models';
 
 const col = collection(db, 'ventas');
+const historyCache = createQueryCache<Venta[]>();
+
+export function invalidateSaleHistoryCache() {
+  historyCache.clear();
+}
 
 export type VentaCursor = QueryDocumentSnapshot<DocumentData>;
 
@@ -67,11 +76,32 @@ export const saleService = {
     );
   },
 
-  async getAll(): Promise<Result<Venta[]>> {
-    return run(async () => {
+  async getAll(forceRefresh = false): Promise<Result<Venta[]>> {
+    if (forceRefresh) historyCache.clear();
+    return historyCache.get(auth.currentUser?.uid ?? '', () => run(async () => {
       const snapshot = await getDocs(query(col, orderBy('creado', 'desc')));
       return snapshot.docs.map(mapVenta);
-    });
+    }));
+  },
+
+  async getByProduct(productId: string, forceRefresh = false): Promise<Result<Venta[]>> {
+    if (!productId.trim()) return fail('validacion', 'Seleccioná un producto.');
+    if (forceRefresh) historyCache.clear();
+    const key = JSON.stringify([auth.currentUser?.uid ?? '', 'product', productId]);
+    return historyCache.get(key, () => run(async () => {
+      let snapshot: QuerySnapshot<DocumentData>;
+      try {
+        snapshot = await getDocs(query(col, where('productIds', 'array-contains', productId), orderBy('creado', 'desc')));
+      } catch (error) {
+        if (typeof error !== 'object' || error === null || !('code' in error) || error.code !== 'failed-precondition') throw error;
+        snapshot = await getDocs(query(col, where('productIds', 'array-contains', productId)));
+      }
+      return snapshot.docs.map(mapVenta).sort((first, second) =>
+        (second.creado?.seconds ?? 0) - (first.creado?.seconds ?? 0) ||
+        (second.creado?.nanoseconds ?? 0) - (first.creado?.nanoseconds ?? 0) ||
+        (first.id < second.id ? 1 : first.id > second.id ? -1 : 0),
+      );
+    }));
   },
 
   subscribeMonth(
@@ -179,6 +209,7 @@ export const saleService = {
           numero,
           negocio: negocioDeItems(ventaItems),
           items: ventaItems,
+          productIds: [...new Set(ventaItems.map((item) => item.productId))],
           totalUsd,
           totalArs,
           ...(descuentoArs > 0
@@ -221,7 +252,9 @@ export const saleService = {
         for (let k = 0; k < ventaItems.length; k++) {
           const snap = productSnaps[k];
           const stock = (snap.data()?.stock as number) ?? 0;
-          tx.update(productRefs[k], { stock: stock - ventaItems[k].cantidad });
+          const nuevoStock = stock - ventaItems[k].cantidad;
+          tx.update(productRefs[k], { stock: nuevoStock });
+          syncLowStockIndex(tx, ventaItems[k].productId, snap.data() ?? null, { ...snap.data(), stock: nuevoStock });
           tx.set(doc(collection(db, 'movimientosStock')), {
             productId: ventaItems[k].productId,
             tipo: 'venta',
@@ -234,6 +267,8 @@ export const saleService = {
 
         return { id: ventaRef.id, numero };
       });
+      historyCache.clear();
+      invalidateProductSearchCache();
       return ok(result);
     } catch (error) {
       console.error('[saleService.crearVenta]', error);
@@ -259,7 +294,9 @@ export const saleService = {
         venta.items.forEach((it, k) => {
           if (snaps[k].exists()) {
             const stock = (snaps[k].data().stock as number) ?? 0;
-            tx.update(refs[k], { stock: stock + it.cantidad });
+            const nuevoStock = stock + it.cantidad;
+            tx.update(refs[k], { stock: nuevoStock });
+            syncLowStockIndex(tx, it.productId, snaps[k].data(), { ...snaps[k].data(), stock: nuevoStock });
             tx.set(doc(collection(db, 'movimientosStock')), {
               productId: it.productId,
               tipo: 'anulacion',
@@ -271,6 +308,8 @@ export const saleService = {
           }
         });
       });
+      historyCache.clear();
+      invalidateProductSearchCache();
       return ok(undefined);
     } catch (error) {
       console.error('[saleService.anular]', error);
@@ -300,6 +339,7 @@ export const saleService = {
       await updateDoc(doc(db, 'ventas', ventaId), {
         facturacion: { estado: 'facturada', tipo: 'C', nroFacturaC, cae },
       });
+      historyCache.clear();
     });
   },
 };

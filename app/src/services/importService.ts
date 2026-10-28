@@ -1,7 +1,9 @@
-import { addDoc, collection, doc, getDocs, increment, limit, orderBy, query, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { addDoc, collection, doc, getDocs, limit, orderBy, query, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase';
 import { run, type Result } from './result';
 import { registrarMovimiento } from './movimientosService';
+import { syncLowStockIndex } from './lowStockService';
+import { invalidateProductSearchCache } from './productService';
 import type { Timestamp } from 'firebase/firestore';
 
 export type MonedaImportacion = 'ARS' | 'USD';
@@ -41,9 +43,16 @@ export const importService = {
     return run(async () => {
       // 1) Actualizar stock (y costo) de cada producto
       for (const it of input.items) {
-        const patch: Record<string, unknown> = { stock: increment(it.cantidad) };
-        if (typeof it.costo === 'number' && it.costo >= 0) patch.costo = it.costo;
-        await updateDoc(doc(db, 'products', it.productId), patch);
+        const reference = doc(db, 'products', it.productId);
+        await runTransaction(db, async (transaction) => {
+          const previous = await transaction.get(reference);
+          if (!previous.exists()) throw new Error('Uno de los productos ya no existe.');
+          const patch: Record<string, number> = { stock: Number(previous.data().stock ?? 0) + it.cantidad };
+          if (typeof it.costo === 'number' && it.costo >= 0) patch.costo = it.costo;
+          transaction.update(reference, patch);
+          syncLowStockIndex(transaction, it.productId, previous.data(), { ...previous.data(), ...patch });
+        });
+        invalidateProductSearchCache();
         await registrarMovimiento(it.productId, 'ingreso', it.cantidad, `Lote: ${input.proveedor}`);
       }
       // 2) Guardar el lote

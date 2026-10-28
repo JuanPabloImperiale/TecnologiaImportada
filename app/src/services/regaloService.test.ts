@@ -28,6 +28,7 @@ vi.mock('firebase/firestore', () => ({
 }));
 
 vi.mock('@/lib/firebase', () => ({ auth: { currentUser: null }, db: {} }));
+vi.mock('./productService', () => ({ invalidateProductSearchCache: vi.fn() }));
 
 import { regaloService } from './regaloService';
 

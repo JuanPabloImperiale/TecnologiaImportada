@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchInput } from '@/hooks/useSearchInput';
 import { Search, Plus, X } from 'lucide-react';
 import { contactService } from '@/services/contactService';
 import { Input } from '@/components/ui/Input';
@@ -16,8 +17,7 @@ interface ClienteSelectorProps {
 }
 
 export function ClienteSelector({ cliente, onChange }: ClienteSelectorProps) {
-  const [busqueda, setBusqueda] = useState('');
-  const [busquedaConfirmada, setBusquedaConfirmada] = useState('');
+  const [busqueda, setBusqueda, busquedaConfirmada, searchPending] = useSearchInput();
   const [showNew, setShowNew] = useState(false);
   const [nuevoNombre, setNuevoNombre] = useState('');
   const [nuevoCelular, setNuevoCelular] = useState('');
@@ -25,30 +25,37 @@ export function ClienteSelector({ cliente, onChange }: ClienteSelectorProps) {
   const [cargandoHistorial, setCargandoHistorial] = useState(false);
   const [errorHistorial, setErrorHistorial] = useState<string | null>(null);
 
-  const buscar = async () => {
-    const term = busqueda.trim();
-    if (!term) return;
-    setBusquedaConfirmada(term);
+  useEffect(() => {
+    const term = busquedaConfirmada.trim();
+    if (!term) {
+      setCandidatos([]);
+      setCargandoHistorial(false);
+      setErrorHistorial(null);
+      return;
+    }
+    let active = true;
     setCargandoHistorial(true);
     setErrorHistorial(null);
-    const resultado = await contactService.search(term);
-    setCargandoHistorial(false);
-    if (resultado.ok) {
-      setCandidatos(resultado.data.map((contacto) => ({
-        nombre: contacto.nombre,
-        celular: contacto.celular,
-        cuitDni: contacto.cuitDni,
-      })));
-    } else {
-      setCandidatos([]);
-      setErrorHistorial(resultado.error.message);
-    }
-  };
+    void contactService.search(term).then((resultado) => {
+      if (!active) return;
+      setCargandoHistorial(false);
+      if (resultado.ok) {
+        setCandidatos(resultado.data.map((contacto) => ({
+          nombre: contacto.nombre,
+          celular: contacto.celular,
+          cuitDni: contacto.cuitDni,
+        })));
+      } else {
+        setCandidatos([]);
+        setErrorHistorial(resultado.error.message);
+      }
+    });
+    return () => { active = false; };
+  }, [busquedaConfirmada]);
 
   const onSelectContacto = (contacto: Cliente) => {
     onChange(contacto);
     setBusqueda('');
-    setBusquedaConfirmada('');
   };
 
   const onNuevoContacto = () => {
@@ -61,13 +68,11 @@ export function ClienteSelector({ cliente, onChange }: ClienteSelectorProps) {
     setNuevoCelular('');
     setShowNew(false);
     setBusqueda('');
-    setBusquedaConfirmada('');
   };
 
   const onLimpiar = () => {
     onChange({ nombre: '', celular: '' });
     setBusqueda('');
-    setBusquedaConfirmada('');
     setCandidatos([]);
   };
 
@@ -98,34 +103,23 @@ export function ClienteSelector({ cliente, onChange }: ClienteSelectorProps) {
           <Input
             placeholder="Buscar contacto por nombre o celular…"
             value={busqueda}
+            loading={searchPending || cargandoHistorial}
             onChange={(e) => setBusqueda(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                buscar();
-              }
-            }}
             className="pl-9"
           />
         </div>
-        <Button variant="ghost" onClick={buscar} disabled={!busqueda.trim() || cargandoHistorial} loading={cargandoHistorial}>
-          Buscar
-        </Button>
       </div>
 
-      {busqueda.trim() && busqueda.trim() !== busquedaConfirmada && (
-        <p className="text-xs text-text-soft">Confirmá la búsqueda con Enter o el botón Buscar.</p>
-      )}
       {cargandoHistorial && (
         <p className="text-xs text-text-soft">Cargando contactos registrados…</p>
       )}
       {errorHistorial && <p className="text-xs text-danger">No se pudieron buscar contactos: {errorHistorial}</p>}
-      {busqueda.trim() === busquedaConfirmada && !cargandoHistorial && candidatos.length === 0 && (
+      {busqueda.trim() && busqueda.trim() === busquedaConfirmada.trim() && !cargandoHistorial && !errorHistorial && candidatos.length === 0 && (
         <p className="text-xs text-text-soft">No hay coincidencias. Podés cargar el contacto manualmente.</p>
       )}
 
       {/* Sugerencias */}
-      {busqueda.trim() && candidatos.length > 0 ? (
+      {busqueda.trim() === busquedaConfirmada.trim() && busqueda.trim() && !cargandoHistorial && candidatos.length > 0 ? (
         <Card className="flex flex-col gap-1 p-2">
           {candidatos.map((c) => (
             <button

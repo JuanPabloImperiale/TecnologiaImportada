@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Plus, Search, Download, ChevronRight, RefreshCw, X } from 'lucide-react';
 import { useCatalog } from '@/hooks/useCatalog';
+import { useSearchInput } from '@/hooks/useSearchInput';
 import { saleService, type VentaCursor } from '@/services/saleService';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
@@ -46,22 +47,21 @@ export function VentasPage() {
   const [cursor, setCursor] = useState<VentaCursor | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [exportando, setExportando] = useState(false);
-  const [q, setQ] = useState('');
-  const [busquedaProducto, setBusquedaProducto] = useState('');
+  const [searchInput, setQ, q, searchPending] = useSearchInput();
+  const [productoInput, setBusquedaProducto, busquedaProducto, productoPending] = useSearchInput();
   const [producto, setProducto] = useState<Producto | null>(null);
-  const [catalogoActivado, setCatalogoActivado] = useState(false);
-  const { all, catMap, loading: loadingCatalog, error: catalogError } = useCatalog({ loadProducts: catalogoActivado });
+  const { all, catMap, loading: loadingCatalog, error: catalogError } = useCatalog({ loadProducts: Boolean(busquedaProducto.trim()) });
   const solicitud = useRef(0);
   const [estado, setEstado] = useState<FiltroEstado>('todas');
   const [facturacion, setFacturacion] = useState<FiltroFacturacion>('todas');
   const [mesExportacion, setMesExportacion] = useState(() => monthKey(new Date()).slice(5));
   const [anioExportacion, setAnioExportacion] = useState(() => monthKey(new Date()).slice(0, 4));
 
-  const cargarPagina = useCallback(async (desde: VentaCursor | null, reemplazar: boolean) => {
+  const cargarPagina = useCallback(async (desde: VentaCursor | null, reemplazar: boolean, forzar = false) => {
     const actual = ++solicitud.current;
     if (reemplazar) setLoading(true);
     else setLoadingMore(true);
-    const resultado = producto ? await saleService.getAll() : await saleService.getPage(30, desde);
+    const resultado = producto ? await saleService.getByProduct(producto.id, forzar) : await saleService.getPage(30, desde);
     if (actual !== solicitud.current) return;
     if (resultado.ok) {
       if (Array.isArray(resultado.data)) {
@@ -141,7 +141,7 @@ export function VentasPage() {
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold tracking-tight">Ventas</h1>
         <div className="flex gap-2">
-          <Button variant="ghost" onClick={() => void cargarPagina(null, true)} disabled={loading}>
+          <Button variant="ghost" onClick={() => void cargarPagina(null, true, true)} disabled={loading}>
             <RefreshCw size={16} aria-hidden="true" /> Actualizar
           </Button>
           <Link to="/adm/ventas/nueva">
@@ -186,7 +186,7 @@ export function VentasPage() {
         ) : (
           <div className="relative">
             <Search size={17} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-soft" aria-hidden="true" />
-            <Input aria-label="Buscar producto para filtrar ventas" placeholder="Buscar producto por nombre, SKU o categoría…" value={busquedaProducto} onChange={(event) => { setBusquedaProducto(event.target.value); if (event.target.value.trim()) setCatalogoActivado(true); }} className="pl-9" />
+            <Input aria-label="Buscar producto para filtrar ventas" placeholder="Buscar producto por nombre, SKU o categoría…" value={productoInput} loading={productoPending || loadingCatalog} onChange={(event) => setBusquedaProducto(event.target.value)} className="pl-9" />
             {busquedaProducto.trim() && (
               <div className="absolute z-10 mt-1 max-h-80 w-full overflow-y-auto rounded-md border border-line bg-surface shadow-ti">
                 {candidatos.map((p) => (
@@ -205,7 +205,7 @@ export function VentasPage() {
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="relative min-w-[200px] flex-1">
           <Search size={17} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-soft" aria-hidden="true" />
-          <Input placeholder="Buscar por N° o cliente…" value={q} onChange={(e) => setQ(e.target.value)} className="pl-9" />
+          <Input placeholder="Buscar por N° o cliente…" value={searchInput} loading={searchPending || loading} onChange={(e) => setQ(e.target.value)} className="pl-9" />
         </div>
         {(['todas', 'confirmada', 'anulada'] as FiltroEstado[]).map((f) => (
           <button

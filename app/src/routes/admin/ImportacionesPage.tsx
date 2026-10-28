@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { History, Search, Trash2, Truck } from 'lucide-react';
 import { useCatalog } from '@/hooks/useCatalog';
+import { useSearchInput } from '@/hooks/useSearchInput';
 import { importService, type LoteImportado } from '@/services/importService';
 import { Card, CardBody } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
@@ -26,9 +27,8 @@ function hoyISO() {
 export function ImportacionesPage() {
   const [proveedor, setProveedor] = useState('');
   const [fecha, setFecha] = useState(hoyISO());
-  const [busqueda, setBusqueda] = useState('');
-  const [catalogoActivado, setCatalogoActivado] = useState(false);
-  const { all, catMap, loading: loadingCatalog } = useCatalog({ loadProducts: catalogoActivado });
+  const [busquedaInput, setBusqueda, busqueda, searchPending] = useSearchInput();
+  const { all, catMap, loading: loadingCatalog } = useCatalog({ loadProducts: Boolean(busqueda.trim()) });
   const [lineas, setLineas] = useState<Linea[]>([]);
   const [guardando, setGuardando] = useState(false);
   const [historial, setHistorial] = useState<LoteImportado[]>([]);
@@ -98,7 +98,7 @@ export function ImportacionesPage() {
         <CardBody className="flex flex-col gap-3">
           <div className="relative">
             <Search size={17} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-soft" aria-hidden="true" />
-            <Input placeholder="Buscar producto o accesorio…" value={busqueda} onChange={(e) => { setBusqueda(e.target.value); if (e.target.value.trim()) setCatalogoActivado(true); }} className="pl-9" />
+            <Input placeholder="Buscar producto o accesorio…" value={busquedaInput} loading={searchPending || loadingCatalog} onChange={(e) => setBusqueda(e.target.value)} className="pl-9" />
             {candidatos.length > 0 && (
               <div className="absolute z-10 mt-1 max-h-80 w-full overflow-y-auto rounded-md border border-line bg-surface shadow-ti">
                 {candidatos.map((p) => (

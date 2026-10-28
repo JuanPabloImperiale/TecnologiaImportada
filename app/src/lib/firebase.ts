@@ -1,7 +1,7 @@
 import { initializeApp, type FirebaseOptions } from 'firebase/app';
 import { initializeAppCheck, ReCaptchaV3Provider, type AppCheck } from 'firebase/app-check';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
 import { getAnalytics, isSupported } from 'firebase/analytics';
 
 const firebaseConfig: FirebaseOptions = {
@@ -51,7 +51,9 @@ function initAppCheck(): AppCheck | null {
 // Servicios: punto único de acceso para toda la app (los services importan de acá).
 // Nota: no usamos Firebase Storage (las imágenes van a Cloudinary, gratis sin tarjeta).
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+});
 export const appCheck = initAppCheck();
 
 // Analytics solo si el entorno lo soporta (evita errores en dev / navegadores sin soporte)

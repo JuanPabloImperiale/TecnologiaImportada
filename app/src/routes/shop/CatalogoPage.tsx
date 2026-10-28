@@ -3,6 +3,7 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { Search, RefreshCw } from 'lucide-react';
 import { productService, type ProductoCursor } from '@/services/productService';
 import { useCategories } from '@/hooks/useCategories';
+import { useSearchInput } from '@/hooks/useSearchInput';
 import { ProductCard } from '@/components/shop/ProductCard';
 import { Input } from '@/components/ui/Input';
 import { Spinner } from '@/components/ui/Spinner';
@@ -33,7 +34,7 @@ export function CatalogoPage() {
   const categorias = useMemo<Categoria[]>(() => [...productosCategorias, ...accesoriosCategorias], [productosCategorias, accesoriosCategorias]);
   const catMap = useMemo(() => new Map(categorias.map((category) => [category.id, category.nombre])), [categorias]);
 
-  const [search, setSearch] = useState(params.get('q') ?? '');
+  const [searchInput, setSearch, search, searchPending] = useSearchInput(params.get('q') ?? '');
   const [unidad, setUnidad] = useState<Unidad>(() => parseUnidad(params.get('unidad')));
   // State holds the category document ID (empty = all)
   const [categoriaId, setCategoriaId] = useState(params.get('categoriaId') ?? '');
@@ -55,30 +56,27 @@ export function CatalogoPage() {
   }, []);
 
   useEffect(() => {
-    if (search.trim()) return;
+    if (search.trim() || categoriaId) return;
     void cargarPagina(null, true);
-  }, [cargarPagina, search]);
+  }, [cargarPagina, search, categoriaId]);
 
   useEffect(() => {
     const term = search.trim();
     if (!term && !categoriaId) return;
     let active = true;
-    const timer = window.setTimeout(() => {
-      setLoading(true);
-      void productService.searchAll({ soloActivos: true }).then((resultado) => {
-        if (!active) return;
-        if (resultado.ok) {
-          setProducts(resultado.data);
-          setCursor(null);
-          setHasMore(false);
-          setError(null);
-        } else setError(resultado.error.message);
-        setLoading(false);
-      });
-    }, 250);
+    setLoading(true);
+    void productService.searchAll({ soloActivos: true }).then((resultado) => {
+      if (!active) return;
+      if (resultado.ok) {
+        setProducts(resultado.data);
+        setCursor(null);
+        setHasMore(false);
+        setError(null);
+      } else setError(resultado.error.message);
+      setLoading(false);
+    });
     return () => {
       active = false;
-      window.clearTimeout(timer);
     };
   }, [search, categoriaId]);
 
@@ -121,11 +119,11 @@ export function CatalogoPage() {
           />
           <Input
             placeholder="Buscar productos…"
-            value={search}
+            value={searchInput}
+            loading={searchPending || loading}
             onChange={(e) => {
               const value = e.target.value;
               setSearch(value);
-              if (!value.trim()) void cargarPagina(null, true);
             }}
             className="pl-9"
           />
@@ -157,7 +155,6 @@ export function CatalogoPage() {
               type="button"
               onClick={() => {
                 setCategoriaId('');
-                if (!search.trim()) void cargarPagina(null, true);
               }}
               className={cn(
                 'whitespace-nowrap rounded-pill border px-4 py-1.5 text-sm font-medium transition-colors',
