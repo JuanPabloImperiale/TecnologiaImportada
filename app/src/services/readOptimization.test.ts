@@ -150,6 +150,37 @@ describe('reducción de lecturas de productos', () => {
 });
 
 describe('reducción de lecturas del historial de ventas', () => {
+  it('busca montos cobrados por moneda sin descargar el historial ni necesitar otro indice compuesto', async () => {
+    await sales.getByAmount(5700, 'ARS');
+    await sales.getByAmount(5700, 'ARS');
+    expect(mocks.getDocs).toHaveBeenCalledOnce();
+    expect(where).toHaveBeenCalledWith('pago.ars', '>=', 5699.995);
+    expect(where).toHaveBeenCalledWith('pago.ars', '<', 5700.005);
+    await sales.getByAmount(5700, 'USD');
+    expect(where).toHaveBeenCalledWith('pago.usd', '>=', 5699.995);
+    expect(mocks.getDocs).toHaveBeenCalledTimes(2);
+    await sales.getByAmount(5700, 'USD', true);
+    expect(mocks.getDocs).toHaveBeenCalledTimes(3);
+  });
+
+  it('rechaza montos invalidos sin consultar Firestore y permite buscar cero', async () => {
+    for (const amount of [-1, NaN, Infinity, Number.MAX_VALUE]) expect((await sales.getByAmount(amount, 'ARS')).ok).toBe(false);
+    expect(mocks.getDocs).not.toHaveBeenCalled();
+    expect((await sales.getByAmount(0, 'ARS')).ok).toBe(true);
+    expect(where).toHaveBeenCalledWith('pago.ars', '>=', -0.005);
+  });
+
+  it('encuentra centavos afectados por coma flotante sin incluir montos de otro centavo', async () => {
+    mocks.getDocs.mockResolvedValueOnce({ docs: [
+      { id: 'exacta', data: () => ({ pago: { ars: 0.1 + 0.2 } }) },
+      { id: 'distinta', data: () => ({ pago: { ars: 0.31 } }) },
+    ] });
+    const result = await sales.getByAmount(0.3, 'ARS');
+    expect(result.ok && result.data.map((item) => item.id)).toEqual(['exacta']);
+    expect(where).toHaveBeenCalledWith('pago.ars', '>=', 0.295);
+    expect(where).toHaveBeenCalledWith('pago.ars', '<', 0.305);
+  });
+
   it('mantiene la busqueda selectiva mientras se construye el indice compuesto', async () => {
     mocks.getDocs.mockRejectedValueOnce({ code: 'failed-precondition' }).mockResolvedValueOnce({ docs: [
       { id: 'v1', data: () => ({ creado: { seconds: 1, nanoseconds: 0 } }) },

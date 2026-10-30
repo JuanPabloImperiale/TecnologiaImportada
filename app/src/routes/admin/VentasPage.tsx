@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Plus, Search, Download, ChevronRight, RefreshCw, X } from 'lucide-react';
 import { useCatalog } from '@/hooks/useCatalog';
-import { useSearchInput } from '@/hooks/useSearchInput';
 import { saleService, type VentaCursor } from '@/services/saleService';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
@@ -12,7 +11,7 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Spinner } from '@/components/ui/Spinner';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { cn, formatMoney, formatUsd, formatDate, monthKey, matchesSearch } from '@/lib/utils';
+import { formatMoney, formatUsd, formatDate, monthKey, matchesSearch } from '@/lib/utils';
 import { medioPagoLabel } from '@/lib/mediosPago';
 import { exportarVentasCsv } from '@/lib/ventasCsv';
 import { coincideFiltroFacturacion, type FiltroFacturacion } from '@/lib/ventas';
@@ -23,6 +22,19 @@ function ventaFecha(v: Venta): Date {
 }
 
 type FiltroEstado = 'todas' | 'confirmada' | 'anulada';
+
+interface FiltrosVentas {
+  producto: Producto | null;
+  texto: string;
+  monto: number | null;
+  moneda: 'ARS' | 'USD';
+  estado: FiltroEstado;
+  facturacion: FiltroFacturacion;
+}
+
+const SIN_FILTROS: FiltrosVentas = {
+  producto: null, texto: '', monto: null, moneda: 'ARS', estado: 'todas', facturacion: 'todas',
+};
 
 const MESES = [
   { value: '01', label: 'Enero' },
@@ -47,63 +59,114 @@ export function VentasPage() {
   const [cursor, setCursor] = useState<VentaCursor | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [exportando, setExportando] = useState(false);
-  const [searchInput, setQ, q, searchPending] = useSearchInput();
-  const [productoInput, setBusquedaProducto, busquedaProducto, productoPending] = useSearchInput();
+  const [searchInput, setSearchInput] = useState('');
+  const [productoInput, setProductoInput] = useState('');
   const [producto, setProducto] = useState<Producto | null>(null);
-  const { all, catMap, loading: loadingCatalog, error: catalogError } = useCatalog({ loadProducts: Boolean(busquedaProducto.trim()) });
+  const [catalogoActivado, setCatalogoActivado] = useState(false);
+  const [sugerenciasAbiertas, setSugerenciasAbiertas] = useState(false);
+  const [montoInput, setMontoInput] = useState('');
+  const [moneda, setMoneda] = useState<'ARS' | 'USD'>('ARS');
+  const [aplicados, setAplicados] = useState<FiltrosVentas>(SIN_FILTROS);
+  const [erroresFiltro, setErroresFiltro] = useState<{ producto?: string; monto?: string }>({});
+  const { all, catMap, loading: loadingCatalog, error: catalogError } = useCatalog({ loadProducts: catalogoActivado });
   const solicitud = useRef(0);
   const [estado, setEstado] = useState<FiltroEstado>('todas');
   const [facturacion, setFacturacion] = useState<FiltroFacturacion>('todas');
   const [mesExportacion, setMesExportacion] = useState(() => monthKey(new Date()).slice(5));
   const [anioExportacion, setAnioExportacion] = useState(() => monthKey(new Date()).slice(0, 4));
 
-  const cargarPagina = useCallback(async (desde: VentaCursor | null, reemplazar: boolean, forzar = false) => {
+  const cargarPagina = useCallback(async (filtros: FiltrosVentas, desde: VentaCursor | null, reemplazar: boolean, forzar = false) => {
     const actual = ++solicitud.current;
-    if (reemplazar) setLoading(true);
-    else setLoadingMore(true);
-    const resultado = producto ? await saleService.getByProduct(producto.id, forzar) : await saleService.getPage(30, desde);
-    if (actual !== solicitud.current) return;
-    if (resultado.ok) {
-      if (Array.isArray(resultado.data)) {
-        setVentas(resultado.data);
-        setCursor(null);
-        setHasMore(false);
-      } else {
-        const pagina = resultado.data;
-        setVentas((actuales) => reemplazar ? pagina.ventas : [...actuales, ...pagina.ventas]);
-        setCursor(pagina.cursor);
-        setHasMore(pagina.hasMore);
-      }
-      setError(null);
-    } else {
-      setError(resultado.error.message);
+    if (reemplazar) {
+      setLoading(true);
+      setLoadingMore(false);
     }
-    setLoading(false);
-    setLoadingMore(false);
-  }, [producto]);
+    else setLoadingMore(true);
+    try {
+      const resultado = filtros.monto !== null
+        ? await saleService.getByAmount(filtros.monto, filtros.moneda, forzar)
+        : filtros.producto
+          ? await saleService.getByProduct(filtros.producto.id, forzar)
+          : filtros.texto || filtros.estado !== 'todas' || filtros.facturacion !== 'todas'
+            ? await saleService.getAll(forzar)
+            : await saleService.getPage(30, desde);
+      if (actual !== solicitud.current) return;
+      if (resultado.ok) {
+        if (Array.isArray(resultado.data)) {
+          setVentas(resultado.data);
+          setCursor(null);
+          setHasMore(false);
+        } else {
+          const pagina = resultado.data;
+          setVentas((actuales) => reemplazar ? pagina.ventas : [...actuales, ...pagina.ventas]);
+          setCursor(pagina.cursor);
+          setHasMore(pagina.hasMore);
+        }
+        setError(null);
+      } else {
+        setError(resultado.error.message);
+      }
+    } catch {
+      if (actual === solicitud.current) setError('No se pudieron cargar las ventas. Intentá nuevamente.');
+    } finally {
+      if (actual === solicitud.current) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    }
+  }, []);
 
   useEffect(() => {
-    void cargarPagina(null, true);
+    void cargarPagina(SIN_FILTROS, null, true);
     return () => { solicitud.current += 1; };
   }, [cargarPagina]);
 
   const candidatos = useMemo(() => {
-    if (!busquedaProducto.trim()) return [];
-    return all.filter((p) => matchesSearch(busquedaProducto, p.nombre, p.sku, catMap.get(p.categoriaId) ?? p.categoria));
-  }, [busquedaProducto, all, catMap]);
+    if (!productoInput.trim()) return [];
+    return all.filter((p) => matchesSearch(productoInput, p.nombre, p.sku, catMap.get(p.categoriaId) ?? p.categoria));
+  }, [productoInput, all, catMap]);
+
+  const buscar = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const monto = montoInput.trim() === '' ? null : Number(montoInput);
+    const errores: typeof erroresFiltro = {};
+    if (productoInput.trim() && !producto) errores.producto = 'Seleccioná un producto de la lista.';
+    if (monto !== null && (!Number.isFinite(monto) || monto < 0)) errores.monto = 'Ingresá un monto válido.';
+    setErroresFiltro(errores);
+    if (Object.keys(errores).length) return;
+    const filtros: FiltrosVentas = { producto, texto: searchInput.trim(), monto, moneda, estado, facturacion };
+    setAplicados(filtros);
+    setSugerenciasAbiertas(false);
+    void cargarPagina(filtros, null, true);
+  };
+
+  const limpiar = () => {
+    setProducto(null);
+    setProductoInput('');
+    setSearchInput('');
+    setMontoInput('');
+    setMoneda('ARS');
+    setEstado('todas');
+    setFacturacion('todas');
+    setErroresFiltro({});
+    setSugerenciasAbiertas(false);
+    setAplicados(SIN_FILTROS);
+    void cargarPagina(SIN_FILTROS, null, true);
+  };
 
   const lista = useMemo(() => {
-    const term = q.trim().toLowerCase();
+    const term = aplicados.texto.toLowerCase();
     return ventas.filter(
       (v) =>
-        (!producto || v.items.some((item) => item.productId === producto.id)) &&
-        (estado === 'todas' || v.estado === estado) &&
-        coincideFiltroFacturacion(v.facturacion?.estado, facturacion) &&
+        (!aplicados.producto || v.items.some((item) => item.productId === aplicados.producto?.id)) &&
+        (aplicados.monto === null || Math.round((aplicados.moneda === 'USD' ? v.pago?.usd : v.pago?.ars) * 100) === Math.round(aplicados.monto * 100)) &&
+        (aplicados.estado === 'todas' || v.estado === aplicados.estado) &&
+        coincideFiltroFacturacion(v.facturacion?.estado, aplicados.facturacion) &&
         (!term ||
           String(v.numero).includes(term) ||
           (v.cliente?.nombre ?? '').toLowerCase().includes(term)),
     );
-  }, [ventas, q, estado, facturacion, producto]);
+  }, [ventas, aplicados]);
 
   const anios = useMemo(() => {
     const currentYear = new Date().getFullYear();
@@ -141,7 +204,7 @@ export function VentasPage() {
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold tracking-tight">Ventas</h1>
         <div className="flex gap-2">
-          <Button variant="ghost" onClick={() => void cargarPagina(null, true, true)} disabled={loading}>
+          <Button variant="ghost" onClick={() => void cargarPagina(aplicados, null, true, true)} disabled={loading}>
             <RefreshCw size={16} aria-hidden="true" /> Actualizar
           </Button>
           <Link to="/adm/ventas/nueva">
@@ -175,22 +238,28 @@ export function VentasPage() {
         </p>
       </div>
 
-      <div className="mb-4">
-        {producto ? (
-          <div className="flex items-center gap-3 rounded-md border border-line bg-surface p-3">
-            <p className="min-w-0 flex-1 break-words text-sm"><span className="font-medium">Producto: {producto.nombre}</span>{!loading && !error && <span className="text-text-soft"> · {lista.length} venta(s)</span>}</p>
-            <Button variant="ghost" onClick={() => { setProducto(null); setBusquedaProducto(''); }} aria-label="Quitar filtro de producto" title="Quitar filtro de producto">
-              <X size={16} aria-hidden="true" />
-            </Button>
-          </div>
-        ) : (
-          <div className="relative">
-            <Search size={17} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-soft" aria-hidden="true" />
-            <Input aria-label="Buscar producto para filtrar ventas" placeholder="Buscar producto por nombre, SKU o categoría…" value={productoInput} loading={productoPending || loadingCatalog} onChange={(event) => setBusquedaProducto(event.target.value)} className="pl-9" />
-            {busquedaProducto.trim() && (
-              <div className="absolute z-10 mt-1 max-h-80 w-full overflow-y-auto rounded-md border border-line bg-surface shadow-ti">
+      <form onSubmit={buscar} className="mb-4 grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-12">
+        <div className="relative min-w-0 lg:col-span-4">
+          <Input
+            id="venta-producto"
+            label="Producto"
+            aria-label="Buscar producto para filtrar ventas"
+            placeholder="Nombre, SKU o categoría…"
+            value={productoInput}
+            loading={loadingCatalog}
+            error={erroresFiltro.producto}
+            role="combobox"
+            aria-expanded={sugerenciasAbiertas && Boolean(productoInput.trim())}
+            aria-controls="venta-productos"
+            autoComplete="off"
+            onFocus={() => { setCatalogoActivado(true); setSugerenciasAbiertas(true); }}
+            onChange={(event) => { setProductoInput(event.target.value); setProducto(null); setSugerenciasAbiertas(true); }}
+            onKeyDown={(event) => { if (event.key === 'Escape') setSugerenciasAbiertas(false); }}
+          />
+            {sugerenciasAbiertas && productoInput.trim() && (
+              <div id="venta-productos" role="listbox" aria-label="Productos" className="absolute z-10 mt-1 max-h-80 w-full overflow-y-auto rounded-md border border-line bg-surface shadow-ti">
                 {candidatos.map((p) => (
-                  <button key={p.id} type="button" onClick={() => { setProducto(p); setBusquedaProducto(''); }} className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-surface-2">
+                  <button key={p.id} type="button" role="option" aria-selected={producto?.id === p.id} onClick={() => { setProducto(p); setProductoInput(p.nombre); setSugerenciasAbiertas(false); }} className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-surface-2">
                     <span className="min-w-0 break-words">{p.nombre}</span>
                     <span className="shrink-0 text-text-soft">{p.monedaVenta === 'USD' ? 'USD' : 'ARS'} · stock {p.stock}</span>
                   </button>
@@ -198,47 +267,34 @@ export function VentasPage() {
                 {candidatos.length === 0 && <p className="p-3 text-sm text-text-soft">{loadingCatalog ? 'Buscando productos…' : catalogError || 'Sin productos coincidentes.'}</p>}
               </div>
             )}
-          </div>
-        )}
-      </div>
-
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="relative min-w-[200px] flex-1">
-          <Search size={17} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-soft" aria-hidden="true" />
-          <Input placeholder="Buscar por N° o cliente…" value={searchInput} loading={searchPending || loading} onChange={(e) => setQ(e.target.value)} className="pl-9" />
         </div>
-        {(['todas', 'confirmada', 'anulada'] as FiltroEstado[]).map((f) => (
-          <button
-            key={f}
-            type="button"
-            onClick={() => setEstado(f)}
-            className={cn(
-              'rounded-pill border px-4 py-1.5 text-sm font-medium capitalize transition-colors',
-              estado === f ? 'border-transparent bg-accent text-on-accent' : 'border-line bg-surface-2 text-text-soft hover:text-text',
-            )}
-          >
-            {f}
-          </button>
-        ))}
-        <Select
-          label="Facturación"
-          value={facturacion}
-          onChange={(event) => setFacturacion(event.target.value as FiltroFacturacion)}
-          options={[
-            { value: 'todas', label: 'Todas' },
-            { value: 'facturada', label: 'Facturadas' },
-            { value: 'sin_facturar', label: 'Sin facturar' },
-          ]}
-          className="min-w-[150px]"
-        />
-      </div>
+        <div className="min-w-0 lg:col-span-4">
+          <Input id="venta-texto" label="N° o cliente" placeholder="Buscar por N° o cliente…" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} />
+        </div>
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_100px] gap-2 lg:col-span-4">
+          <Input id="venta-monto" label="Monto cobrado" aria-label="Monto cobrado" type="number" min="0" step="0.01" inputMode="decimal" placeholder="Ej. 5700" value={montoInput} error={erroresFiltro.monto} onChange={(event) => setMontoInput(event.target.value)} />
+          <Select id="venta-moneda" label="Moneda" value={moneda} onChange={(event) => setMoneda(event.target.value as 'ARS' | 'USD')} options={[{ value: 'ARS', label: 'ARS' }, { value: 'USD', label: 'USD' }]} />
+        </div>
+        <div className="min-w-0 lg:col-span-4">
+          <Select id="venta-estado" label="Estado" value={estado} onChange={(event) => setEstado(event.target.value as FiltroEstado)} options={[{ value: 'todas', label: 'Todas' }, { value: 'confirmada', label: 'Confirmadas' }, { value: 'anulada', label: 'Anuladas' }]} />
+        </div>
+        <div className="min-w-0 lg:col-span-4">
+          <Select id="venta-facturacion" label="Facturación" value={facturacion} onChange={(event) => setFacturacion(event.target.value as FiltroFacturacion)} options={[{ value: 'todas', label: 'Todas' }, { value: 'facturada', label: 'Facturadas' }, { value: 'sin_facturar', label: 'Sin facturar' }]} />
+        </div>
+        <div className="flex items-center gap-2 lg:col-span-4">
+          <Button type="submit" loading={loading} disabled={loading}><Search size={16} aria-hidden="true" /> Buscar</Button>
+          <Button type="button" variant="ghost" onClick={limpiar} disabled={loading} aria-label="Limpiar filtros" title="Limpiar filtros"><X size={16} aria-hidden="true" /></Button>
+        </div>
+      </form>
+
+      {!loading && !error && !hasMore && <p aria-live="polite" className="mb-3 text-sm text-text-soft">{lista.length} venta(s){aplicados.producto ? ` · ${aplicados.producto.nombre}` : ''}{aplicados.monto !== null ? ` · Cobrado ${aplicados.moneda === 'USD' ? formatUsd(aplicados.monto) : formatMoney(aplicados.monto)}` : ''}</p>}
 
       {loading ? (
         <Spinner />
       ) : error ? (
         <EmptyState title="Error" description={error} />
       ) : lista.length === 0 ? (
-        <EmptyState title={producto ? 'Sin ventas coincidentes' : ventas.length === 0 ? 'Sin ventas recientes' : 'Sin coincidencias en esta página'} description={producto ? 'No hay ventas de este producto con los filtros seleccionados.' : ventas.length === 0 ? 'Registrá tu primera venta con “Nueva venta”.' : 'Probá otro filtro o cargá páginas anteriores.'} />
+        <EmptyState title={hasMore ? 'Sin coincidencias en esta página' : 'Sin ventas coincidentes'} description="No hay ventas con los filtros seleccionados." />
       ) : (
         <div className="flex flex-col gap-2">
           {lista.map((v) => (
@@ -279,7 +335,7 @@ export function VentasPage() {
       {!loading && !error && hasMore && (
         <div className="mt-4 flex flex-col items-center gap-2">
           <p className="text-xs text-text-soft">Mostrando búsqueda y filtros sobre las {ventas.length} ventas cargadas.</p>
-          <Button variant="ghost" onClick={() => void cargarPagina(cursor, false)} loading={loadingMore} disabled={loadingMore}>
+          <Button variant="ghost" onClick={() => void cargarPagina(aplicados, cursor, false)} loading={loadingMore} disabled={loadingMore}>
             Cargar 30 ventas anteriores
           </Button>
         </div>

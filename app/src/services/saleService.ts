@@ -45,6 +45,14 @@ function mapVenta(snapshot: QueryDocumentSnapshot<DocumentData>): Venta {
   return { id: snapshot.id, ...(snapshot.data() as Omit<Venta, 'id'>) };
 }
 
+function orderedVentas(snapshot: QuerySnapshot<DocumentData>): Venta[] {
+  return snapshot.docs.map(mapVenta).sort((first, second) =>
+    (second.creado?.seconds ?? 0) - (first.creado?.seconds ?? 0) ||
+    (second.creado?.nanoseconds ?? 0) - (first.creado?.nanoseconds ?? 0) ||
+    (first.id < second.id ? 1 : first.id > second.id ? -1 : 0),
+  );
+}
+
 export interface NuevaVentaInput {
   items: ItemVenta[];
   envio: Envio; // ARS
@@ -96,11 +104,22 @@ export const saleService = {
         if (typeof error !== 'object' || error === null || !('code' in error) || error.code !== 'failed-precondition') throw error;
         snapshot = await getDocs(query(col, where('productIds', 'array-contains', productId)));
       }
-      return snapshot.docs.map(mapVenta).sort((first, second) =>
-        (second.creado?.seconds ?? 0) - (first.creado?.seconds ?? 0) ||
-        (second.creado?.nanoseconds ?? 0) - (first.creado?.nanoseconds ?? 0) ||
-        (first.id < second.id ? 1 : first.id > second.id ? -1 : 0),
-      );
+      return orderedVentas(snapshot);
+    }));
+  },
+
+  async getByAmount(amount: number, currency: 'ARS' | 'USD', forceRefresh = false): Promise<Result<Venta[]>> {
+    const cents = Math.round(amount * 100);
+    if (!Number.isSafeInteger(cents) || amount < 0 || !['ARS', 'USD'].includes(currency)) return fail('validacion', 'Ingresá un monto cobrado válido.');
+    if (forceRefresh) historyCache.clear();
+    const key = JSON.stringify([auth.currentUser?.uid ?? '', 'amount', currency, cents]);
+    return historyCache.get(key, () => run(async () => {
+      const field = currency === 'USD' ? 'pago.usd' : 'pago.ars';
+      const snapshot = await getDocs(query(col,
+        where(field, '>=', (cents - 0.5) / 100),
+        where(field, '<', (cents + 0.5) / 100),
+      ));
+      return orderedVentas(snapshot).filter((venta) => Math.round((currency === 'USD' ? venta.pago?.usd : venta.pago?.ars) * 100) === cents);
     }));
   },
 
