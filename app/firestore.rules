@@ -10,6 +10,13 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function validateVentaCliente(cliente) {
+      // Si cliente existe, validar que solo tiene campos permitidos
+      return !cliente.keys().hasAny(['nombreBusqueda']) &&
+             (!cliente.keys().hasAny(['cuitDni', 'celular', 'nombre']) ||
+              cliente.keys().hasOnly(['cuitDni', 'celular', 'nombre']));
+    }
+
     // Catálogo: lectura pública, escritura solo equipo
     match /products/{id} {
       allow read: if true;
@@ -43,7 +50,11 @@ service cloud.firestore {
     }
 
     // Datos internos del negocio: solo equipo (autenticado)
-    match /ventas/{id}            { allow read, write: if signedIn(); }
+    // Ventas con validación de schema para cliente object
+    match /ventas/{id} {
+      allow create, update: if signedIn() && validateVentaCliente(request.resource.data.get('cliente', {}));
+      allow read, delete: if signedIn();
+    }
     match /regalos/{id}           { allow read, write: if signedIn(); }
     match /cuentasCobrar/{id}     { allow read, write: if signedIn(); }
     match /gastos/{id}            { allow read, write: if signedIn(); }
@@ -55,8 +66,10 @@ service cloud.firestore {
     match /settings/{id}          { allow read: if true; allow write: if signedIn(); }
     match /contactosAdmin/{id}    { allow read, write: if signedIn(); }
     match /clientes/{id} {
-      // La tienda solo puede crear el cliente mínimo junto con el pedido.
-      // No puede leerlo ni modificar un cliente existente.
+      // Lectura: solo autenticados
+      allow read: if signedIn();
+      
+      // Creación: solo admin O público con datos válidos
       allow create: if signedIn() || (
         request.resource.data.keys().hasOnly([
         'celular', 'nombre', 'nombreOriginal', 'nombreBusqueda',
@@ -68,7 +81,9 @@ service cloud.firestore {
         && request.resource.data.celular is string
         && request.resource.data.eliminado == false
       );
-      allow read, update, delete: if signedIn();
+      
+      // Actualización y eliminación: solo admin (autenticado)
+      allow update, delete: if signedIn();
     }
     match /clientesMeta/{id} { allow read, write: if signedIn(); }
   }
