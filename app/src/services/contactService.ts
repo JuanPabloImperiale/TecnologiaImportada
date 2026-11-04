@@ -156,16 +156,21 @@ export const contactService = {
       const agregar = (celular: unknown, nombre: unknown, tipo: 'pedido' | 'venta' | 'cuenta', cuitDni?: unknown) => {
         const key = normalizarCelular(String(celular ?? ''));
         if (!key) return;
+        
+        // SECURITY: Limitar longitud de campos a 255 caracteres
+        const nombreStr = String(nombre ?? '').trim().slice(0, 255);
+        const cuitDniStr = String(cuitDni ?? '').trim().slice(0, 255);
+        
         const actual = contactos.get(key) ?? {
           celular: key,
-          nombre: String(nombre ?? '').trim(),
-          nombreOriginal: String(nombre ?? '').trim(),
+          nombre: nombreStr,
+          nombreOriginal: nombreStr,
           cantidadPedidos: 0,
           cantidadVentas: 0,
           cantidadCuentas: 0,
         };
-        if (!actual.nombre && nombre) actual.nombre = String(nombre).trim();
-        if (cuitDni && !actual.cuitDni) actual.cuitDni = String(cuitDni).trim();
+        if (!actual.nombre && nombre) actual.nombre = nombreStr;
+        if (cuitDniStr && !actual.cuitDni) actual.cuitDni = cuitDniStr;
         actual[`cantidad${tipo[0].toUpperCase()}${tipo.slice(1)}s`] = Number(actual[`cantidad${tipo[0].toUpperCase()}${tipo.slice(1)}s`] ?? 0) + 1;
         actual.ultimoContacto = (actual.ultimoContacto as { seconds?: number } | undefined)?.seconds
           ? actual.ultimoContacto
