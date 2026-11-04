@@ -183,6 +183,14 @@ export const saleService = {
     if (!ventaItems.some((i) => i.tipo === 'venta'))
       return fail('validacion', 'Tiene que haber al menos un producto vendido (no todo bonificación).');
 
+    // SECURITY: Verificar que hay sesión activa ANTES de procesar
+    if (!auth.currentUser) {
+      return fail('auth', 'Error de autenticación: no hay sesión activa. Por favor, recargá la página.');
+    }
+
+    // Capturar vendorId con sesión verificada
+    const vendorId = auth.currentUser.email ?? auth.currentUser.uid;
+
     try {
       const result = await runTransaction(db, async (tx) => {
         // 1) Lecturas: contador + productos
@@ -245,7 +253,7 @@ export const saleService = {
           pedidoId: input.pedidoId ?? null,
           estado: 'confirmada',
           facturacion: { estado: 'sin_facturar', tipo: 'C' },
-          vendedorId: auth.currentUser?.email ?? auth.currentUser?.uid ?? '',
+          vendedorId: vendorId,
           creado: serverTimestamp(),
         });
 
