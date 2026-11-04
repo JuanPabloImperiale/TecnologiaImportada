@@ -5,11 +5,6 @@ import { useEffect, useState } from 'react';
 import { auth } from '@/lib/firebase';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 
-interface CustomClaims {
-  role?: 'admin' | 'vendedor' | 'contador';
-  [key: string]: unknown;
-}
-
 /**
  * Guard de rutas admin con soporte para roles via Custom Claims.
  * 
@@ -19,12 +14,11 @@ interface CustomClaims {
  */
 export function ProtectedRoute() {
   const { isAuthenticated, loading } = useAuth();
-  // Claims se usa cuando se activa validación de roles (ver comentarios abajo)
-  const [_claims, _setClaims] = useState<CustomClaims | null>(null);
   const [claimsLoading, setClaimsLoading] = useState(true);
 
   useEffect(() => {
     // Usar Firebase onAuthStateChanged para obtener el User completo
+    // Claims se validan cuando se activa validación de roles (ver abajo)
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: User | null) => {
       if (!firebaseUser) {
         setClaimsLoading(false);
@@ -32,8 +26,7 @@ export function ProtectedRoute() {
       }
 
       try {
-        const idTokenResult = await firebaseUser.getIdTokenResult();
-        _setClaims(idTokenResult.claims as CustomClaims);
+        await firebaseUser.getIdTokenResult();
       } catch (error) {
         console.error('[ProtectedRoute] Error getting claims:', error);
       } finally {
