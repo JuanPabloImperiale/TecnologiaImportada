@@ -24,18 +24,9 @@ if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
 export const app = initializeApp(firebaseConfig);
 
 const appCheckSiteKey = import.meta.env.VITE_FIREBASE_APPCHECK_SITE_KEY as string | undefined;
-const appCheckDebugToken = import.meta.env.VITE_FIREBASE_APPCHECK_DEBUG_TOKEN as string | undefined;
 
 function initAppCheck(): AppCheck | null {
   if (typeof window === 'undefined' || !appCheckSiteKey) return null;
-
-  if (appCheckDebugToken) {
-    const scope = globalThis as typeof globalThis & {
-      FIREBASE_APPCHECK_DEBUG_TOKEN?: string | boolean;
-    };
-    scope.FIREBASE_APPCHECK_DEBUG_TOKEN =
-      appCheckDebugToken === 'true' ? true : appCheckDebugToken;
-  }
 
   try {
     return initializeAppCheck(app, {
