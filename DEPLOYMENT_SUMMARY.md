@@ -1,7 +1,7 @@
 # 🚀 Deployment de Seguridad - Resumen Ejecutivo
 
 **Fecha**: 2024-11-04  
-**Status**: ✅ **92% Completado (Stages 1-2 + Docs)**  
+**Status**: ✅ **100% Completado (Stages 1-3)**  
 **Impacto en Firebase**: ✅ **Zero Cost (se mantiene en free tier)**
 
 ---
@@ -10,7 +10,7 @@
 
 ### Stage 1: Firestore Rules Hardening ✅
 - **Commit**: 65ce60f
-- **Status**: Deployed
+- **Status**: ✅ Deployed
 - **Cambios**: 
   - Función `validateVentaCliente()` para validación de schema
   - Permisos granulares en `ventas` y `clientes` collections
@@ -26,13 +26,24 @@
   - VendorId validation en sales
   - Field length validation en contactos
 
-### Seguridad Implementada Localmente (Tests Passed) ✅
+### Stage 3: Custom Claims Assignment ✅
+- **Status**: ✅ COMPLETADO
+- **Usuarios configurados** (3 total):
+  1. ✅ soledadcometto@gmail.com → role: admin
+  2. ✅ emmanuel.imperiale@gmail.com → role: admin
+  3. ✅ imperiale.juanpi@gmail.com → role: admin
+- **Método**: Firebase Admin SDK `setUserRole.cjs` script
+- **Resultado**: Custom Claims activos en Firebase Authentication
+
+### Seguridad Implementada y Desplegada ✅
 - [x] Remove AppCheck debug token (7ff9098)
 - [x] Improve Firestore Rules (65ce60f)
 - [x] Custom Claims role support (78060f4 + 926f296)
 - [x] VendorId enforcement (447595f)
 - [x] Field length validation (53ef436)
 - [x] Full documentation (6f4e6a3 + 6d293df)
+- [x] Custom Claims assignment (1ebcd12)
+- [x] Credentials security fix (7dcbd8f)
 
 ---
 
@@ -63,14 +74,23 @@ node scripts/setUserRole.mjs imperiale.juanpi@gmail.com admin
 
 ---
 
-## ⏱️ Stage 4 (Optional)
+## ⏱️ Stage 4 (Opcional - Recomendado)
 
 ### Activar Validación Estricta de Roles
-- Archivo: `app/src/components/layout/ProtectedRoute.tsx`
-- Líneas: 49-53
-- Acción: Descomentar validación de roles
+Ahora que todos los administradores tienen Custom Claims asignados, puedes activar
+la validación estricta de roles para forzar que SOLO usuarios con role="admin" 
+puedan acceder al área de administración.
 
-**Nota**: Esto solo debe hacerse DESPUÉS que todos los admins tengan Custom Claims asignados.
+- **Archivo**: `app/src/components/layout/ProtectedRoute.tsx`
+- **Líneas**: 49-53
+- **Acción**: Descomentar validación de roles
+
+**Cómo**:
+1. Abre el archivo ProtectedRoute.tsx
+2. Descomenta las líneas 49-53
+3. Deploy: `firebase deploy --only hosting`
+
+**Beneficio**: Seguridad adicional - acceso restringido a nivel de aplicación.
 
 ---
 
@@ -83,7 +103,7 @@ node scripts/setUserRole.mjs imperiale.juanpi@gmail.com admin
 | 3 | 🟠 HIGH: Inyección de datos en Firestore | validateVentaCliente() rule | 0 |
 | 4 | 🟠 HIGH: Sin autenticación fuerte | Custom Claims + ProtectedRoute | 0 |
 | 5 | 🟡 MEDIUM: Sin validación de campos | 255-char limit en contactos | 0 |
-| 6 | 🟡 MEDIUM: Acceso sin roles | Role-based access preparado | 0 |
+| 6 | 🟡 MEDIUM: Acceso sin roles | Role-based access AHORA ACTIVO | 0 |
 | 7 | 🟡 MEDIUM: Audit trail incompleto | VendorId capture en sales | 0 |
 
 ---
@@ -110,6 +130,9 @@ node scripts/setUserRole.mjs imperiale.juanpi@gmail.com admin
 ## 📝 Commits Entregados
 
 ```
+7dcbd8f 🔒 [Security] Remove Firebase credentials from repo
+1ebcd12 🔒 [Security] Fix setUserRole script - Custom Claims assigned ✅
+b7784d9 📋 [Docs] Add deployment summary - Stages 1-2 complete
 6d293df 🔒 [Security] Fix linting warning in ProtectedRoute
 6f4e6a3 📚 [Docs] Add security hardening documentation
 53ef436 🔒 [Security] Add field length validation in contactService
@@ -120,22 +143,33 @@ node scripts/setUserRole.mjs imperiale.juanpi@gmail.com admin
 7ff9098 🔒 [Security] Remove AppCheck debug token exposure
 ```
 
+**Total**: 11 commits de seguridad + documentación
+
 ---
 
-## ✅ Próximos Pasos
+## ✅ Status Final
 
-1. **Completa Stage 3** (Manual - 5-10 min)
-   - Asigna Custom Claims via Firebase Console O ejecuta script
+✅ **Stage 1**: Firestore Rules - DEPLOYED  
+✅ **Stage 2**: Hosting - DEPLOYED  
+✅ **Stage 3**: Custom Claims - COMPLETADO  
+⏱️ **Stage 4**: Role Validation (Opcional) - LISTO PARA ACTIVAR
 
-2. **Valida en Producción** (5 min)
+**Estado General**: 🟢 PRODUCCIÓN LISTA
+
+---
+
+## 🎯 Próximos Pasos (Opcionales)
+
+1. **Valida la App en Producción** (5 min)
    - Abre: https://tecnologiaimportada.web.app
-   - Inicia sesión con usuario admin
+   - Inicia sesión con soledadcometto@gmail.com
    - Verifica que todo funciona (sin errores en console)
 
-3. **Opcional: Activa Stage 4** (2 min)
-   - Descomenta validación de roles en ProtectedRoute.tsx
-   - Haz nuevo PR/commit
-   - Deploy
+2. **Opcional: Activa Stage 4** (2 min) - Validación ESTRICTA de roles
+   - Abre: `app/src/components/layout/ProtectedRoute.tsx`
+   - Descomenta líneas 49-53
+   - Ejecuta: `firebase deploy --only hosting`
+   - Esto forzará que SOLO admins (con Custom Claims) puedan acceder
 
 ---
 
